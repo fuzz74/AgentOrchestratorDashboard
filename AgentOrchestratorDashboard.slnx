@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OrchDash.Core/OrchDash.Core.csproj" />
+    <Project Path="src/OrchDash/OrchDash.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OrchDash.Core.Tests/OrchDash.Core.Tests.csproj" />
+    <Project Path="tests/OrchDash.Tests/OrchDash.Tests.csproj" />
+  </Folder>
+</Solution>

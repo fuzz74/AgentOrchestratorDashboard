@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "XenoAtom.Terminal.UI": {
+        "type": "Direct",
+        "requested": "[3.10.0, 3.10.0]",
+        "resolved": "3.10.0",
+        "contentHash": "Dvdgw2EyoSdL9NoXsuVKHfl9Ebz6tCpikv7lyzqgyLa7TNhOosR63cIus3EAaerDjWG891ujAvge2S5Tkse2pw==",
+        "dependencies": {
+          "XenoAtom.Ansi": "1.7.1",
+          "XenoAtom.Terminal": "2.2.0"
+        }
+      },
+      "Wcwidth": {
+        "type": "Transitive",
+        "resolved": "4.0.1",
+        "contentHash": "PMU8u3pGf9nUkee39KMrB8qqId7u7kyGWaZpOh9E4Mal3xChq+relS/hHQOicGAswyzi7F5DjXjac0mTnRBX8Q=="
+      },
+      "XenoAtom.Ansi": {
+        "type": "Transitive",
+        "resolved": "1.7.1",
+        "contentHash": "TXxP5wKT4kMJBEG72crUoMPPntykmZhCizq2LNO21gk/GgGBxzcKA+CoewJNKe/qfncS3Zkd4ss4VbHsdE5BKA==",
+        "dependencies": {
+          "Wcwidth": "4.0.1"
+        }
+      },
+      "XenoAtom.Terminal": {
+        "type": "Transitive",
+        "resolved": "2.2.0",
+        "contentHash": "J3oOWIoJm24pAN2zsSesy8eyv6nUQyjmW6OFqmbH596HyaEOErQPKdQMEIPNqQT7QymipcbHm6qEAfREuomfkA==",
+        "dependencies": {
+          "XenoAtom.Ansi": "1.7.0"
+        }
+      },
+      "orchdash.core": {
+        "type": "Project"
+      }
+    }
+  }
+}

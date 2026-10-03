@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+artifacts/
+TestResults/
+
+# IDE and caches
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+
+# Local env files
+.env
+.env.*
+*.local.json
