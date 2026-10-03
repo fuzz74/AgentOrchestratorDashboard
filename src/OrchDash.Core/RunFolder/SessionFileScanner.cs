@@ -19,7 +19,11 @@ public static partial class SessionFileScanner
 
     // logsDir is <runDir>/logs. Never throws. A missing folder gives an empty array and no problem.
     // A folder that cannot be listed adds one line that names it to problems.
-    public static ImmutableArray<SessionFiles> Scan(string logsDir, ICollection<string> problems)
+    public static ImmutableArray<SessionFiles> Scan(string logsDir, ICollection<string> problems) =>
+        Scan(logsDir, problems, listing: null);
+
+    // As Scan above; also records in listing the root files and each task's latest start folder.
+    internal static ImmutableArray<SessionFiles> Scan(string logsDir, ICollection<string> problems, LogsListing? listing)
     {
         DirectoryInfo logs;
         try
@@ -37,6 +41,7 @@ public static partial class SessionFileScanner
         {
             if (entry is FileInfo file)
             {
+                listing?.AddRootFile(file);
                 AddFile(sessions, "", file, Level.Root, null, null);
             }
             else if (entry is DirectoryInfo dir && BootstrapFolder().IsMatch(dir.Name))
@@ -56,11 +61,10 @@ public static partial class SessionFileScanner
                         continue;
 
                     var folder = taskId + "/" + startDir.Name;
-                    foreach (var grandChild in List(startDir, "logs/" + folder, problems))
-                    {
-                        if (grandChild is FileInfo sessionFile)
-                            AddFile(sessions, folder + "/", sessionFile, Level.Start, taskId, startDir.Name);
-                    }
+                    var startFiles = List(startDir, "logs/" + folder, problems).OfType<FileInfo>().ToArray();
+                    listing?.AddStartFolder(taskId, startDir.Name, startFiles);
+                    foreach (var sessionFile in startFiles)
+                        AddFile(sessions, folder + "/", sessionFile, Level.Start, taskId, startDir.Name);
                 }
             }
         }
