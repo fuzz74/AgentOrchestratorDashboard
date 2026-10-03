@@ -1,0 +1,4 @@
+{
+  "setup": "dotnet restore AnsiDemo.slnx",
+  "integrationCheck": "dotnet build AnsiDemo.slnx -warnaserror && dotnet test AnsiDemo.slnx --no-build"
+}

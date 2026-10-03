@@ -1,0 +1,103 @@
+{
+  "duration_api_ms": 158386,
+  "stop_reason": "tool_use",
+  "session_id": "66a6a33c-01ca-42bf-85bb-4eec9505a991",
+  "total_cost_usd": 0.8224428,
+  "usage": {
+    "input_tokens": 16,
+    "cache_creation_input_tokens": 49941,
+    "cache_read_input_tokens": 404954,
+    "output_tokens": 17093,
+    "output_tokens_details": {
+      "thinking_tokens": 6172
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 49941,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 809,
+        "cache_read_input_tokens": 67172,
+        "cache_creation_input_tokens": 234,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 234
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 16,
+      "outputTokens": 17093,
+      "cacheReadInputTokens": 404954,
+      "cacheCreationInputTokens": 49941,
+      "webSearchRequests": 0,
+      "costUSD": 0.8224428,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 6172,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "is_error": false,
+  "num_turns": 14,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "{\"status\":\"done\",\"summary\":\"Added AnsiDemo.Audio.Synth (public sealed, parameterless ctor, implements ISynth) in src/AnsiDemo/Audio/Synth.cs, with internal helpers SynthChannel.cs (one oscillator plus envelope and LFSR) and SynthWaveform.cs (Pulse/Triangle/Noise enum). Channels 0 and 1 are pulse, 2 is triangle and 3 is noise. NoteOn resets phase, envelope and LFSR. Render writes (short)(clamp(0.25┬╖╬ú value┬╖Volume┬╖envelope, ΓêÆ1, 1)┬╖32767) for each sample, then advances every channel. It works in double math and allocates nothing. Invalid channel or frequency (Γëñ0, >22050, NaN) throws ArgumentException. Added tests/AnsiDemo.Tests/Audio/SynthTests.cs with 47 test cases. The acceptance command passes: build has 0 warnings and all 47 tests pass.\",\"notes_for_dependents\":\"- `new AnsiDemo.Audio.Synth()` is the only public type. SynthChannel and SynthWaveform are internal.\\n- Frequency is checked as `!(f > 0 && f <= 22050)`, so NaN and infinity also throw. A null instrument throws ArgumentNullException. A call that throws leaves the channel unchanged.\\n- SetFrequency on a channel that has had no NoteOn (or after NoteOff) only stores the pitch; the channel stays silent. NoteOff on an already-silent channel is allowed.\\n- Phase wraps by subtracting floor. The noise channel accumulates 16┬╖f/SampleRate per sample and steps the LFSR once per whole unit, up to 8 steps per sample at 22050 Hz. A silent channel does not advance.\\n- Volume is not clamped per channel; only the final mix is clamped. A 4-channel full-volume mix of ┬▒1 reaches exactly ┬▒32767.\\n- Test files written by this task: tests/AnsiDemo.Tests/Audio/SynthTests.cs (namespace AnsiDemo.Tests.Audio).\"}",
+  "structured_output": {
+    "status": "done",
+    "summary": "Added AnsiDemo.Audio.Synth (public sealed, parameterless ctor, implements ISynth) in src/AnsiDemo/Audio/Synth.cs, with internal helpers SynthChannel.cs (one oscillator plus envelope and LFSR) and SynthWaveform.cs (Pulse/Triangle/Noise enum). Channels 0 and 1 are pulse, 2 is triangle and 3 is noise. NoteOn resets phase, envelope and LFSR. Render writes (short)(clamp(0.25┬╖╬ú value┬╖Volume┬╖envelope, ΓêÆ1, 1)┬╖32767) for each sample, then advances every channel. It works in double math and allocates nothing. Invalid channel or frequency (Γëñ0, >22050, NaN) throws ArgumentException. Added tests/AnsiDemo.Tests/Audio/SynthTests.cs with 47 test cases. The acceptance command passes: build has 0 warnings and all 47 tests pass.",
+    "notes_for_dependents": "- `new AnsiDemo.Audio.Synth()` is the only public type. SynthChannel and SynthWaveform are internal.\n- Frequency is checked as `!(f > 0 && f <= 22050)`, so NaN and infinity also throw. A null instrument throws ArgumentNullException. A call that throws leaves the channel unchanged.\n- SetFrequency on a channel that has had no NoteOn (or after NoteOff) only stores the pitch; the channel stays silent. NoteOff on an already-silent channel is allowed.\n- Phase wraps by subtracting floor. The noise channel accumulates 16┬╖f/SampleRate per sample and steps the LFSR once per whole unit, up to 8 steps per sample at 22050 Hz. A silent channel does not advance.\n- Volume is not clamped per channel; only the final mix is clamped. A 4-channel full-volume mix of ┬▒1 reaches exactly ┬▒32767.\n- Test files written by this task: tests/AnsiDemo.Tests/Audio/SynthTests.cs (namespace AnsiDemo.Tests.Audio)."
+  },
+  "ttft_ms": 1722,
+  "type": "result",
+  "duration_ms": 164599,
+  "uuid": "07c18eac-03c0-4124-aed7-cfdb1e050dbc",
+  "ttft_stream_ms": 1053,
+  "time_to_request_ms": 58,
+  "first_content_frame_ms": 1053,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

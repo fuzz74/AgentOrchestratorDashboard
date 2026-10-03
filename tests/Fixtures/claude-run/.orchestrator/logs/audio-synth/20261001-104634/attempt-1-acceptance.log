@@ -1,0 +1,16 @@
+> dotnet build AnsiDemo.slnx -warnaserror && dotnet test AnsiDemo.slnx --no-build --filter "FullyQualifiedName~AnsiDemo.Tests.Audio.Synth"
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  AnsiDemo -> C:\Data\AI\AnsiDemo.worktrees\audio-synth\src\AnsiDemo\bin\Debug\net10.0\AnsiDemo.dll
+  AnsiDemo.Tests -> C:\Data\AI\AnsiDemo.worktrees\audio-synth\tests\AnsiDemo.Tests\bin\Debug\net10.0\AnsiDemo.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.09
+Test run for C:\Data\AI\AnsiDemo.worktrees\audio-synth\tests\AnsiDemo.Tests\bin\Debug\net10.0\AnsiDemo.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    47, Skipped:     0, Total:    47, Duration: 31 ms - AnsiDemo.Tests.dll (net10.0)
+
