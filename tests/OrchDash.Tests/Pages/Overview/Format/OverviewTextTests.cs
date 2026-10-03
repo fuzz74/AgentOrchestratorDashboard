@@ -142,6 +142,33 @@ public sealed class OverviewTextTests
     }
 
     [Fact]
+    public void Task_widths_fit_every_cell_when_the_row_is_wide_enough()
+    {
+        // Longest id 7 ("epsilon"), title 20 ("Epsilon command line"), detail 33 (the gamma error).
+        var widths = OverviewText.TaskWidths(_run.Tasks, OverviewText.FixedRowWidth + 7 + 20 + 33 + 10);
+
+        Assert.Equal((7, 20, 33), widths);
+    }
+
+    [Fact]
+    public void Task_widths_give_the_detail_room_first_and_the_title_the_rest()
+    {
+        var width = OverviewText.FixedRowWidth + 7 + 45;
+
+        Assert.Equal((7, 12, 33), OverviewText.TaskWidths(_run.Tasks, width));
+        Assert.Equal((7, 12, 28), OverviewText.TaskWidths(_run.Tasks, width - 5));
+        // The header has every column at its full width: "[muted]" + header + "[/]".
+        Assert.Equal(width, OverviewText.TaskHeader(7, 12, 33).Length - "[muted][/]".Length);
+    }
+
+    [Fact]
+    public void Task_widths_without_tasks_fit_the_header()
+    {
+        Assert.Equal((2, 5, 6), OverviewText.TaskWidths([], 200));
+        Assert.Equal((2, 0, 0), OverviewText.TaskWidths([], 10));
+    }
+
+    [Fact]
     public void Task_popup_has_the_sections_in_order()
     {
         var full = Task("alpha") with { Error = "boom", Feedback = "fix it" };
