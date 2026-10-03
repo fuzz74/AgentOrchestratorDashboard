@@ -13,6 +13,9 @@ public static class OverviewText
     public const int AttemptsWidth = 3;
     public const int CostWidth = 10;
     public const int ElapsedWidth = 7;
+    // The width of a task row without its id, title and detail: icon, wave, attempts, cost, elapsed and the 7 gaps.
+    public const int FixedRowWidth = 1 + WaveWidth + AttemptsWidth + CostWidth + ElapsedWidth + 7 * 2;
+    public const int MinTitleWidth = 12;
     public const int RunningItemCount = 5;
     public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(5);
 
@@ -94,6 +97,20 @@ public static class OverviewText
     public static string TaskHeader(int idWidth, int titleWidth, int detailWidth) =>
         Look.Tag("muted", Columns([" ", "Id", "Wave", "Title", "Detail", "Att", "Cost", "Elapsed"],
             idWidth, titleWidth, detailWidth));
+
+    // 7.3: the id, title and detail widths for task rows of the given width. The id column fits every id; the detail
+    // column comes next, up to its longest cell, while it leaves the title MinTitleWidth; the title takes the rest, up to
+    // its longest cell. Each column is at least as wide as its header.
+    public static (int Id, int Title, int Detail) TaskWidths(IReadOnlyList<TaskView> tasks, int width)
+    {
+        var id = Longest(tasks, t => t.Id, "Id");
+        var longestTitle = Longest(tasks, t => t.Title, "Title");
+        var longestDetail = Longest(tasks, t => t.Detail, "Detail");
+        var rest = Math.Max(0, width - FixedRowWidth - id);
+        var detail = Math.Min(longestDetail, Math.Max(0, rest - Math.Min(longestTitle, MinTitleWidth)));
+        var title = Math.Min(longestTitle, rest - detail);
+        return (id, title, detail);
+    }
 
     // 7.4: Status, Plan, Prompt, Summary, Notes, Error, Feedback, Sessions; empty sections left out.
     public static IReadOnlyList<PopupSection> TaskPopup(TaskView t, RunSnapshot s)
@@ -217,6 +234,9 @@ public static class OverviewText
     }
 
     private static string ToolCalls(int n) => n == 1 ? "1 tool call" : $"{Number(n)} tool calls";
+
+    private static int Longest(IReadOnlyList<TaskView> tasks, Func<TaskView, string> cell, string header) =>
+        tasks.Select(t => cell(t).Length).Append(header.Length).Max();
 
     private static int Count(RunSnapshot s, TaskState state) => s.Tasks.Count(t => t.Status == state);
 
