@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "spec": ".orchestrator/spec.md",
+  "baseBranch": "main",
+  "integrationBranch": "orch/integration",
+  "settings": {
+    "model": "gpt-6-sol",
+    "reviewModel": "gpt-6-sol",
+    "maxAttempts": 3,
+    "review": true,
+    "setup": "dotnet restore TextKit.slnx",
+    "integrationCheck": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build",
+    "shared": ["src/TextKit/CommandRegistry.cs", "README.md"]
+  },
+  "tasks": [
+    {
+      "id": "core",
+      "title": "Implement CLI contracts, dispatch, input handling, and upper",
+      "deps": [],
+      "owns": [
+        "src/TextKit/Core/**",
+        "src/TextKit/Program.cs",
+        "src/TextKit/Commands/UpperCommand.cs",
+        "tests/TextKit.Tests/Core/**",
+        "tests/TextKit.Tests/Commands/UpperCommandTests.cs"
+      ],
+      "acceptance": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build",
+      "prompt": "Implement the core module in the existing .NET 10 solution. Replace src/TextKit/Program.cs with the specified entry point. Add one file per type under src/TextKit/Core/ for ICommand, ExitCodes, CommandException, InputFile, and App, with the exact public signatures and behavior in sections 1, 2, and 4.3. Add src/TextKit/Commands/UpperCommand.cs with the exact properties and behavior in section 3. Create the shared src/TextKit/CommandRegistry.cs with only new UpperCommand() initially, and append the specified command table with only the upper row to the existing README.md; preserve its existing content. Write tests under tests/TextKit.Tests/Core/ and tests/TextKit.Tests/Commands/UpperCommandTests.cs covering dispatch, ordered and padded help, error reporting, UTF-8 BOM and CRLF handling, line splitting, missing files, upper output, usage errors, and exactly one UpperCommand in the registry. Use file-scoped namespaces, StringWriter with NewLine = \"\\n\", and temporary input directories cleaned up after each test. Do not change solution or project files. Run the whole-project check before finishing."
+    },
+    {
+      "id": "count",
+      "title": "Implement and test count",
+      "deps": [
+        "core"
+      ],
+      "owns": [
+        "src/TextKit/Commands/CountCommand.cs",
+        "tests/TextKit.Tests/Commands/CountCommandTests.cs"
+      ],
+      "acceptance": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build --filter \"FullyQualifiedName~TextKit.Tests.Commands.CountCommandTests\" -- RunConfiguration.TreatNoTestsAsError=true",
+      "prompt": "Read src/TextKit/Commands/UpperCommand.cs and tests/TextKit.Tests/Commands/UpperCommandTests.cs first and follow their shape. Add CountCommand implementing ICommand with Name = \"count\", Usage = \"count <file>\", Description = \"Count lines, words and characters\". Require exactly one argument or throw CommandException.Usage(this). Print lines, whitespace-delimited word count, and normalized-text character count exactly as section 4 specifies, using InputFile. Add tests for outputs, whitespace and line-ending cases, usage errors, missing files, and exactly one CountCommand in CommandRegistry.All; use temporary input directories and complete StringWriter output assertions. Shared-file rule: add exactly one new CountCommand() line directly below the last existing entry in src/TextKit/CommandRegistry.cs and exactly one `count <file>` row directly below the last existing row in the README.md command table, matching section 4.3. Add only your own line and row; keep every line already present when resolving a merge conflict. Do not edit another module or project files. Run the count module check before finishing."
+    },
+    {
+      "id": "find",
+      "title": "Implement and test find",
+      "deps": [
+        "core"
+      ],
+      "owns": [
+        "src/TextKit/Commands/FindCommand.cs",
+        "tests/TextKit.Tests/Commands/FindCommandTests.cs"
+      ],
+      "acceptance": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build --filter \"FullyQualifiedName~TextKit.Tests.Commands.FindCommandTests\" -- RunConfiguration.TreatNoTestsAsError=true",
+      "prompt": "Read src/TextKit/Commands/UpperCommand.cs and tests/TextKit.Tests/Commands/UpperCommandTests.cs first and follow their shape. Add FindCommand implementing ICommand with Name = \"find\", Usage = \"find <file> <text> [--ignore-case]\", Description = \"Print the lines that contain a text\". Implement section 5: validate argument count, nonempty search text and the optional third argument before reading; search InputFile.ReadLines in file order, printing 1-based line numbers with ordinal matching or OrdinalIgnoreCase when requested. Throw CommandException.Usage(this) for each invalid usage. Test matching and nonmatching cases, both comparison modes, line numbering, every invalid usage, missing files, and exactly one FindCommand in CommandRegistry.All; use temporary input directories and complete StringWriter output assertions. Shared-file rule: add exactly one new FindCommand() line directly below the last existing entry in src/TextKit/CommandRegistry.cs and exactly one `find <file> <text> [--ignore-case]` row directly below the last existing row in the README.md command table, matching section 4.3. Add only your own line and row; keep every line already present when resolving a merge conflict. Do not edit another module or project files. Run the find module check before finishing."
+    },
+    {
+      "id": "freq",
+      "title": "Implement and test freq",
+      "deps": [
+        "core"
+      ],
+      "owns": [
+        "src/TextKit/Commands/FreqCommand.cs",
+        "tests/TextKit.Tests/Commands/FreqCommandTests.cs"
+      ],
+      "acceptance": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build --filter \"FullyQualifiedName~TextKit.Tests.Commands.FreqCommandTests\" -- RunConfiguration.TreatNoTestsAsError=true",
+      "prompt": "Read src/TextKit/Commands/UpperCommand.cs and tests/TextKit.Tests/Commands/UpperCommandTests.cs first and follow their shape. Add FreqCommand implementing ICommand with Name = \"freq\", Usage = \"freq <file> [--top <n>]\", Description = \"List the most frequent words\". Implement section 6: tokenize maximal char.IsLetterOrDigit runs, lowercase invariantly, count occurrences, sort by count descending then word ascending using ordinal comparison, and print at most 10 lines or the requested top n. Accept only one argument or three with --top and an integer 1..1000 parsed using NumberStyles.None and CultureInfo.InvariantCulture; otherwise throw CommandException.Usage(this). Test tokenization, mixed case, ties, empty/no-word files, default and custom limits, all invalid usage cases, missing files, and exactly one FreqCommand in CommandRegistry.All; use temporary input directories and complete StringWriter output assertions. Shared-file rule: add exactly one new FreqCommand() line directly below the last existing entry in src/TextKit/CommandRegistry.cs and exactly one `freq <file> [--top <n>]` row directly below the last existing row in the README.md command table, matching section 4.3. Add only your own line and row; keep every line already present when resolving a merge conflict. Do not edit another module or project files. Run the freq module check before finishing."
+    },
+    {
+      "id": "e2e",
+      "title": "Add samples, process-level tests, and README examples",
+      "deps": [
+        "core",
+        "count",
+        "find",
+        "freq"
+      ],
+      "owns": [
+        "samples/**",
+        "tests/TextKit.Tests/EndToEnd/**"
+      ],
+      "acceptance": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build --filter \"FullyQualifiedName~TextKit.Tests.EndToEnd\" -- RunConfiguration.TreatNoTestsAsError=true",
+      "prompt": "After all four commands are merged, add samples/poem.txt (ASCII, 8ΓÇô12 lines, exactly one empty line, a word occurring at least three times, and a word appearing both capitalized and lowercase) and samples/empty.txt (zero bytes). Under tests/TextKit.Tests/EndToEnd/, write process-level xUnit tests for every success and failure case in sections 7.2ΓÇô7.4. Start dotnet with the TextKit.dll in AppContext.BaseDirectory and the command arguments; use the nearest ancestor containing TextKit.slnx as the working directory. Capture and normalize stdout and stderr CRLF to LF, then assert complete output and exit code against explicit expectations based on the chosen sample. Add a test that the registry has exactly the four specified command names and that README.md contains each exact command-table row exactly once; read README only via File.ReadAllLines, and do not read sample files in tests. If a registry entry or row is missing, duplicated or wrong, correct that shared file rather than weakening the test. Append ## Examples to README.md with one tested poem command per command in `dotnet run --project src/TextKit -- <command> ...` form and its exact expected stdout. Preserve existing README content and command rows. Do not change project files. Run the e2e module check before finishing."
+    }
+  ]
+}

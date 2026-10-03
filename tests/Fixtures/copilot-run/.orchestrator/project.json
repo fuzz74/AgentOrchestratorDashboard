@@ -1,0 +1,4 @@
+{
+  "setup": "dotnet restore TextKit.slnx",
+  "integrationCheck": "dotnet build TextKit.slnx -warnaserror && dotnet test TextKit.slnx --no-build"
+}
