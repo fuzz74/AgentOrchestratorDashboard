@@ -45,7 +45,7 @@ public sealed class RunStoreTailTests : IDisposable
     public void First_poll_reads_the_whole_file_and_publishes_version_1()
     {
         var clock = new ManualClock(At(12, 30, 0));
-        string[] lines = [Claude("one"), Claude("two"), Claude("three")];
+        string[] lines = [ClaudeLine("one"), ClaudeLine("two"), ClaudeLine("three")];
         _repo.Append(_session, string.Join("\n", lines) + "\n");
         using var store = NewStore(clock);
 
@@ -62,15 +62,15 @@ public sealed class RunStoreTailTests : IDisposable
     [Fact]
     public void Later_polls_pass_only_the_appended_lines()
     {
-        _repo.Append(_session, Claude("one") + "\n" + Claude("two") + "\n");
+        _repo.Append(_session, ClaudeLine("one") + "\n" + ClaudeLine("two") + "\n");
         using var store = NewStore();
         store.Poll();
 
-        _repo.Append(_session, Claude("three") + "\n");
+        _repo.Append(_session, ClaudeLine("three") + "\n");
         store.Poll();
 
         var parser = Assert.Single(_factory.Parsers);
-        Assert.Equal([Claude("one"), Claude("two"), Claude("three")], parser.Lines);
+        Assert.Equal([ClaudeLine("one"), ClaudeLine("two"), ClaudeLine("three")], parser.Lines);
         Assert.Equal(2, store.Current.Version);
         Assert.Equal(parser.Lines, Texts(Assert.Single(store.Current.Sessions)));
     }
@@ -78,8 +78,8 @@ public sealed class RunStoreTailTests : IDisposable
     [Fact]
     public void A_line_without_its_newline_is_held_back_until_it_is_complete()
     {
-        var complete = Claude("complete");
-        var partial = Claude("partial");
+        var complete = ClaudeLine("complete");
+        var partial = ClaudeLine("partial");
         _repo.Append(_session, complete + "\n" + partial[..10]);
         using var store = NewStore();
 
@@ -101,22 +101,22 @@ public sealed class RunStoreTailTests : IDisposable
     public void Carriage_returns_and_the_byte_order_mark_are_removed()
     {
         byte[] bom = [0xEF, 0xBB, 0xBF];
-        _repo.AppendBytes(_session, [.. bom, .. Encoding.UTF8.GetBytes(Claude("one") + "\r\n" + Claude("two") + "\r\n")]);
+        _repo.AppendBytes(_session, [.. bom, .. Encoding.UTF8.GetBytes(ClaudeLine("one") + "\r\n" + ClaudeLine("two") + "\r\n")]);
         using var store = NewStore();
 
         store.Poll();
 
-        Assert.Equal([Claude("one"), Claude("two")], Assert.Single(_factory.Parsers).Lines);
+        Assert.Equal([ClaudeLine("one"), ClaudeLine("two")], Assert.Single(_factory.Parsers).Lines);
     }
 
     [Fact]
     public void A_multi_byte_character_split_over_two_polls_survives()
     {
-        var line = Claude("blåbærsyltetøy € 𝄞");
+        var line = ClaudeLine("blåbærsyltetøy € 𝄞");
         var bytes = Encoding.UTF8.GetBytes(line + "\n");
-        // Claude("blåbærsyltet") ends with the two bytes "}, so this cuts after the first byte of "ø".
-        var split = Encoding.UTF8.GetByteCount(Claude("blåbærsyltet")) - 2 + 1;
-        _repo.Append(_session, Claude("first") + "\n");
+        // ClaudeLine("blåbærsyltet") ends with the two bytes "}, so this cuts after the first byte of "ø".
+        var split = Encoding.UTF8.GetByteCount(ClaudeLine("blåbærsyltet")) - 2 + 1;
+        _repo.Append(_session, ClaudeLine("first") + "\n");
         _repo.AppendBytes(_session, bytes[..split]);
         using var store = NewStore();
 
@@ -124,7 +124,7 @@ public sealed class RunStoreTailTests : IDisposable
         _repo.AppendBytes(_session, bytes[split..]);
         store.Poll();
 
-        Assert.Equal([Claude("first"), line], Assert.Single(_factory.Parsers).Lines);
+        Assert.Equal([ClaudeLine("first"), line], Assert.Single(_factory.Parsers).Lines);
     }
 
     [Fact]
@@ -143,14 +143,14 @@ public sealed class RunStoreTailTests : IDisposable
     [Fact]
     public void An_events_file_that_disappears_keeps_what_was_read()
     {
-        _repo.Append(_session, Claude("one") + "\n");
+        _repo.Append(_session, ClaudeLine("one") + "\n");
         using var store = NewStore();
         store.Poll();
 
         File.Delete(_session.EventsPath);
         store.Poll();
 
-        Assert.Equal([Claude("one")], Texts(Assert.Single(store.Current.Sessions)));
+        Assert.Equal([ClaudeLine("one")], Texts(Assert.Single(store.Current.Sessions)));
         Assert.Empty(store.Current.Problems);
         Assert.Equal(1, store.Current.Version);
     }

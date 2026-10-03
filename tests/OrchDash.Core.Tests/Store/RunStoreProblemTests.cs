@@ -109,23 +109,23 @@ public sealed class RunStoreProblemTests : IDisposable
         var session = _repo.Session("alpha/20261003-120000/attempt-1-worker.json", "alpha");
         var reader = new FakeRunFolderReader(() => Data(sessions: [session]));
         using var store = new RunStore(_repo.RepoPath, reader, _factory.Create);
-        _repo.Append(session, Claude("one") + "\n");
+        _repo.Append(session, ClaudeLine("one") + "\n");
         store.Poll();
 
-        _factory.ThrowOnceOn(Claude("boom"));
-        _repo.Append(session, Claude("boom") + "\n" + Claude("after") + "\n");
+        _factory.ThrowOnceOn(ClaudeLine("boom"));
+        _repo.Append(session, ClaudeLine("boom") + "\n" + ClaudeLine("after") + "\n");
         store.Poll();
 
         Assert.Equal(2, store.Current.Version);
-        Assert.Equal(["fake parser failed on " + Claude("boom")], store.Current.Problems);
-        Assert.Equal([Claude("one")], Texts(Assert.Single(store.Current.Sessions)));
+        Assert.Equal(["fake parser failed on " + ClaudeLine("boom")], store.Current.Problems);
+        Assert.Equal([ClaudeLine("one")], Texts(Assert.Single(store.Current.Sessions)));
 
         store.Poll();
 
         Assert.Equal(3, store.Current.Version);
         Assert.Empty(store.Current.Problems);
         Assert.Equal(2, _factory.Parsers.Count);
-        Assert.Equal([Claude("one"), Claude("boom"), Claude("after")], _factory.Parsers[1].Lines);
+        Assert.Equal([ClaudeLine("one"), ClaudeLine("boom"), ClaudeLine("after")], _factory.Parsers[1].Lines);
         Assert.Equal(_factory.Parsers[1].Lines, Texts(Assert.Single(store.Current.Sessions)));
     }
 }

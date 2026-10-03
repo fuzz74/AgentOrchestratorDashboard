@@ -8,7 +8,7 @@ public static class StoreData
 {
     public static DateTimeOffset At(int hour, int minute, int second) => new(2026, 10, 3, hour, minute, second, TimeSpan.Zero);
 
-    public static string Claude(string text, DateTimeOffset? ts = null) =>
+    public static string ClaudeLine(string text, DateTimeOffset? ts = null) =>
         ts is { } time ? $$"""{"session_id":"s1","text":"{{text}}","ts":"{{time:O}}"}""" : $$"""{"session_id":"s1","text":"{{text}}"}""";
 
     public static RunInfo Run(RunPhase phase = RunPhase.Running, int maxParallel = 2) =>

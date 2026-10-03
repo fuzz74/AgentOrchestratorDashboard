@@ -47,13 +47,13 @@ public sealed class RunStoreProviderTests : IDisposable
         Assert.Same(SessionContent.Empty, unknown.Content);
         Assert.Empty(_factory.Calls);
 
-        _repo.Append(session, Claude("decides") + "\n");
+        _repo.Append(session, ClaudeLine("decides") + "\n");
         store.Poll();
-        _repo.Append(session, Claude("after") + "\n");
+        _repo.Append(session, ClaudeLine("after") + "\n");
         store.Poll();
 
         var parser = Assert.Single(_factory.Parsers);
-        Assert.Equal([.. undecided, Claude("decides"), Claude("after")], parser.Lines);
+        Assert.Equal([.. undecided, ClaudeLine("decides"), ClaudeLine("after")], parser.Lines);
         Assert.Equal(Provider.Claude, Assert.Single(store.Current.Sessions).Provider);
         Assert.Equal(parser.Lines, Texts(Assert.Single(store.Current.Sessions)));
     }
@@ -64,7 +64,7 @@ public sealed class RunStoreProviderTests : IDisposable
         var undecided = _repo.Session("planner-20261003-110111-1.json", role: AgentRole.Planner);
         var decided = _repo.Session("alpha/20261003-120000/attempt-1-worker.json", "alpha");
         _repo.Append(undecided, "plain text\n");
-        _repo.Append(decided, Claude("one") + "\n");
+        _repo.Append(decided, ClaudeLine("one") + "\n");
         using var store = NewStore(undecided, decided);
 
         store.Poll();
@@ -80,7 +80,7 @@ public sealed class RunStoreProviderTests : IDisposable
         var bootstrap = _repo.Session("bootstrap-20261003-110028/attempt-1.json", role: AgentRole.Bootstrap);
         var planner = _repo.Session("planner-20261003-110111-1.json", role: AgentRole.Planner);
         foreach (var session in new[] { worker, bootstrap, planner })
-            _repo.Append(session, Claude("one") + "\n");
+            _repo.Append(session, ClaudeLine("one") + "\n");
         var reader = new FakeRunFolderReader(() => Data(sessions: [worker, bootstrap, planner]));
         using var store = new RunStore(_repo.RepoPath + Path.DirectorySeparatorChar, reader, _factory.Create);
 
@@ -97,7 +97,7 @@ public sealed class RunStoreProviderTests : IDisposable
     public void A_shorter_file_gives_a_new_parser_fed_from_the_start()
     {
         var session = _repo.Session("alpha/20261003-120000/attempt-1-worker.json", "alpha");
-        _repo.Append(session, Claude("one") + "\n" + Claude("two") + "\n" + Claude("three") + "\n");
+        _repo.Append(session, ClaudeLine("one") + "\n" + ClaudeLine("two") + "\n" + ClaudeLine("three") + "\n");
         using var store = NewStore(session);
         store.Poll();
 
@@ -117,7 +117,7 @@ public sealed class RunStoreProviderTests : IDisposable
     public void A_shorter_file_without_a_deciding_line_is_unknown_again()
     {
         var session = _repo.Session("alpha/20261003-120000/attempt-1-worker.json", "alpha");
-        _repo.Append(session, Claude("one") + "\n" + Claude("two") + "\n");
+        _repo.Append(session, ClaudeLine("one") + "\n" + ClaudeLine("two") + "\n");
         using var store = NewStore(session);
         store.Poll();
 

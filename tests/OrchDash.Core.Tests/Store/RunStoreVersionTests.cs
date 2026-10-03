@@ -16,7 +16,7 @@ public sealed class RunStoreVersionTests : IDisposable
     {
         _session = _repo.Session("alpha/20261003-120000/attempt-1-worker.json", "alpha", promptWrittenAt: At(12, 0, 5));
         _repo.WritePrompt(_session, "Build alpha.");
-        _repo.Append(_session, Claude("hello", At(12, 0, 10)) + "\n"
+        _repo.Append(_session, ClaudeLine("hello", At(12, 0, 10)) + "\n"
             + """{"session_id":"s1","result":"ok","ts":"2026-10-03T12:01:00+00:00"}""" + "\n");
     }
 
@@ -98,12 +98,12 @@ public sealed class RunStoreVersionTests : IDisposable
         using var store = new RunStore(_repo.RepoPath, reader, _factory.Create);
         store.Poll();
 
-        _repo.Append(_session, Claude("more") + "\n");
+        _repo.Append(_session, ClaudeLine("more") + "\n");
         store.Poll();
         store.Poll();
 
         Assert.Equal(2, store.Current.Version);
-        Assert.Contains(Claude("more"), Texts(Assert.Single(store.Current.Sessions)));
+        Assert.Contains(ClaudeLine("more"), Texts(Assert.Single(store.Current.Sessions)));
     }
 
     [Fact]

@@ -55,7 +55,7 @@ public sealed class RunStoreSessionTests : IDisposable
     public void A_result_file_without_a_result_is_failed()
     {
         var session = Worker("alpha", 1, hasResultFile: true);
-        _repo.Append(session, Claude("working") + "\n");
+        _repo.Append(session, ClaudeLine("working") + "\n");
 
         Assert.Equal(SessionState.Failed, Find(PollOnce(RunPhase.Running, session), session).State);
     }
@@ -67,7 +67,7 @@ public sealed class RunStoreSessionTests : IDisposable
     public void An_unfinished_session_of_a_live_run_is_running(RunPhase phase)
     {
         var session = Worker("alpha", 1);
-        _repo.Append(session, Claude("working") + "\n");
+        _repo.Append(session, ClaudeLine("working") + "\n");
 
         Assert.Equal(SessionState.Running, Find(PollOnce(phase, session), session).State);
     }
@@ -131,7 +131,7 @@ public sealed class RunStoreSessionTests : IDisposable
     public void StartedAt_is_the_first_event_time_when_there_is_one()
     {
         var session = Worker("alpha", 1);
-        _repo.Append(session, Claude("no time") + "\n" + Claude("first", At(12, 1, 30)) + "\n" + Claude("second", At(12, 2, 0)) + "\n");
+        _repo.Append(session, ClaudeLine("no time") + "\n" + ClaudeLine("first", At(12, 1, 30)) + "\n" + ClaudeLine("second", At(12, 2, 0)) + "\n");
 
         Assert.Equal(At(12, 1, 30), Find(PollOnce(RunPhase.Running, session), session).StartedAt);
     }
@@ -140,7 +140,7 @@ public sealed class RunStoreSessionTests : IDisposable
     public void StartedAt_is_the_prompt_write_time_without_an_event_time()
     {
         var session = Worker("alpha", 1);
-        _repo.Append(session, Claude("no time") + "\n");
+        _repo.Append(session, ClaudeLine("no time") + "\n");
         var withoutPrompt = _repo.Session("beta/20261003-120000/attempt-1-worker.json", "beta");
 
         var snapshot = PollOnce(RunPhase.Running, session, withoutPrompt);

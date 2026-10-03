@@ -25,27 +25,27 @@ public sealed class RunStoreThreadTests : IDisposable
     [Fact]
     public async Task An_appended_line_is_published_within_two_seconds()
     {
-        _repo.Append(_session, Claude("one") + "\n");
+        _repo.Append(_session, ClaudeLine("one") + "\n");
         using var store = new RunStore(_repo.RepoPath, _reader, _factory.Create);
 
         store.Start();
         Assert.Equal(1, store.Current.Version);
-        Assert.Equal([Claude("one")], Texts(Assert.Single(store.Current.Sessions)));
+        Assert.Equal([ClaudeLine("one")], Texts(Assert.Single(store.Current.Sessions)));
 
-        _repo.Append(_session, Claude("two") + "\n");
+        _repo.Append(_session, ClaudeLine("two") + "\n");
         var watch = Stopwatch.StartNew();
         while (Texts(Assert.Single(store.Current.Sessions)).Length < 2 && watch.Elapsed < TimeSpan.FromSeconds(3))
             await Task.Delay(20, TestContext.Current.CancellationToken);
         watch.Stop();
 
-        Assert.Equal([Claude("one"), Claude("two")], Texts(Assert.Single(store.Current.Sessions)));
+        Assert.Equal([ClaudeLine("one"), ClaudeLine("two")], Texts(Assert.Single(store.Current.Sessions)));
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
     }
 
     [Fact]
     public async Task Nothing_changes_after_dispose()
     {
-        _repo.Append(_session, Claude("one") + "\n");
+        _repo.Append(_session, ClaudeLine("one") + "\n");
         var store = new RunStore(_repo.RepoPath, _reader, _factory.Create, pollInterval: TimeSpan.FromMilliseconds(50));
         store.Start();
         await Task.Delay(200, TestContext.Current.CancellationToken);
@@ -53,7 +53,7 @@ public sealed class RunStoreThreadTests : IDisposable
         store.Dispose();
         var last = store.Current;
         var reads = _reader.Reads;
-        _repo.Append(_session, Claude("two") + "\n");
+        _repo.Append(_session, ClaudeLine("two") + "\n");
         await Task.Delay(500, TestContext.Current.CancellationToken);
 
         Assert.Same(last, store.Current);
