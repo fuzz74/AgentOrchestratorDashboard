@@ -1,0 +1,16 @@
+{
+  "type": "result",
+  "timestamp": "2026-10-03T09:01:40.036Z",
+  "sessionId": "d92e413e-38cc-401c-8118-611e46e77210",
+  "exitCode": 0,
+  "usage": {
+    "premiumRequests": 1,
+    "totalApiDurationMs": 25168,
+    "sessionDurationMs": 26492,
+    "codeChanges": {
+      "linesAdded": 0,
+      "linesRemoved": 0,
+      "filesModified": []
+    }
+  }
+}

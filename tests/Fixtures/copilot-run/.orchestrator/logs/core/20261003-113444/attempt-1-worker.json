@@ -1,0 +1,30 @@
+{
+  "type": "result",
+  "timestamp": "2026-10-03T09:35:41.094Z",
+  "sessionId": "ae783abf-0989-4988-88c1-089deac14062",
+  "exitCode": 0,
+  "usage": {
+    "premiumRequests": 1,
+    "totalApiDurationMs": 41112,
+    "sessionDurationMs": 52974,
+    "codeChanges": {
+      "linesAdded": 445,
+      "linesRemoved": 23,
+      "filesModified": [
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Program.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Core\\ICommand.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Core\\ExitCodes.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Core\\CommandException.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Core\\InputFile.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Core\\App.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\Commands\\UpperCommand.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\src\\TextKit\\CommandRegistry.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\README.md",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\tests\\TextKit.Tests\\Core\\AppTests.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\tests\\TextKit.Tests\\Core\\CommandExceptionTests.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\tests\\TextKit.Tests\\Core\\InputFileTests.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\core\\tests\\TextKit.Tests\\Commands\\UpperCommandTests.cs"
+      ]
+    }
+  }
+}

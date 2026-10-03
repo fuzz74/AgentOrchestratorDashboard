@@ -1,0 +1,19 @@
+{
+  "type": "result",
+  "timestamp": "2026-10-03T09:51:06.612Z",
+  "sessionId": "483087e5-0b46-4aa4-ad51-a9cb81de2f9d",
+  "exitCode": 0,
+  "usage": {
+    "premiumRequests": 1,
+    "totalApiDurationMs": 11870,
+    "sessionDurationMs": 17693,
+    "codeChanges": {
+      "linesAdded": 2,
+      "linesRemoved": 8,
+      "filesModified": [
+        "C:\\Data\\AI\\TextKit.worktrees\\count\\README.md",
+        "C:\\Data\\AI\\TextKit.worktrees\\count\\src\\TextKit\\CommandRegistry.cs"
+      ]
+    }
+  }
+}
