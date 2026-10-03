@@ -1,0 +1,21 @@
+{
+  "type": "result",
+  "timestamp": "2026-10-03T09:50:32.815Z",
+  "sessionId": "f7dfd185-96f7-4770-99c9-5d660aba6c5c",
+  "exitCode": 0,
+  "usage": {
+    "premiumRequests": 1,
+    "totalApiDurationMs": 24459,
+    "sessionDurationMs": 35600,
+    "codeChanges": {
+      "linesAdded": 118,
+      "linesRemoved": 1,
+      "filesModified": [
+        "C:\\Data\\AI\\TextKit.worktrees\\count\\src\\TextKit\\Commands\\CountCommand.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\count\\tests\\TextKit.Tests\\Commands\\CountCommandTests.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\count\\src\\TextKit\\CommandRegistry.cs",
+        "C:\\Data\\AI\\TextKit.worktrees\\count\\README.md"
+      ]
+    }
+  }
+}

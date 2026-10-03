@@ -1,0 +1,104 @@
+{
+  "duration_api_ms": 57914,
+  "stop_reason": "tool_use",
+  "session_id": "60e2b369-7dd9-4eeb-b389-cdadd402e942",
+  "total_cost_usd": 0.5906472,
+  "usage": {
+    "input_tokens": 16,
+    "cache_creation_input_tokens": 51997,
+    "cache_read_input_tokens": 336936,
+    "output_tokens": 5361,
+    "output_tokens_details": {
+      "thinking_tokens": 1418
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 51997,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 785,
+        "cache_read_input_tokens": 51102,
+        "cache_creation_input_tokens": 895,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 895
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 16,
+      "outputTokens": 5361,
+      "cacheReadInputTokens": 336936,
+      "cacheCreationInputTokens": 51997,
+      "webSearchRequests": 0,
+      "costUSD": 0.5906472,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 1418,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "is_error": false,
+  "num_turns": 10,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "{\"status\":\"done\",\"setup\":\"dotnet restore AnsiDemo.slnx\",\"integration_check\":\"dotnet build AnsiDemo.slnx -warnaserror && dotnet test AnsiDemo.slnx --no-build\",\"summary\":\"I set up the skeleton for .NET 10 with C# 13. Both commands pass locally: the build with -warnaserror gives 0 warnings, and the single smoke test passes. A test run filtered to one module also works, and `dotnet run --project src/AnsiDemo` prints the placeholder line.\\n\\nWhat I created:\\n- **Solution:** `AnsiDemo.slnx`.\\n- **App project:** `src/AnsiDemo/AnsiDemo.csproj` (Exe, AssemblyName AnsiDemo, net10.0, LangVersion 13, nullable and implicit usings on, InvariantGlobalization on). A placeholder `Program.cs` prints one line.\\n- **Test project:** `tests/AnsiDemo.Tests/AnsiDemo.Tests.csproj` references the app. Its only packages are Microsoft.NET.Test.Sdk 18.10.1, xunit 2.9.3 and xunit.runner.visualstudio 4.0.0. It has one project-level `<Using Include=\\\"Xunit\\\" />`, which is the only global using.\\n- **Test files:** `AssemblyInfo.cs` turns off test parallelization; `SmokeTests.cs` is one trivial passing test in namespace `AnsiDemo.Tests`.\\n- **Lock files:** both projects set `RestorePackagesWithLockFile`, so restore created `packages.lock.json` in each.\\n- **`.gitignore`:** covers bin/, obj/, TestResults/, IDE caches, local env files and `*.actual.ansi`.\\n- **`.gitattributes`:** not in the spec's file list. It marks `*.ansi` as `-text` so git line-ending conversion doesn't change golden files.\\n- **`README.md`:** a one-line description plus the setup, test and run commands. The demo task will replace it.\"}",
+  "structured_output": {
+    "status": "done",
+    "setup": "dotnet restore AnsiDemo.slnx",
+    "integration_check": "dotnet build AnsiDemo.slnx -warnaserror && dotnet test AnsiDemo.slnx --no-build",
+    "summary": "I set up the skeleton for .NET 10 with C# 13. Both commands pass locally: the build with -warnaserror gives 0 warnings, and the single smoke test passes. A test run filtered to one module also works, and `dotnet run --project src/AnsiDemo` prints the placeholder line.\n\nWhat I created:\n- **Solution:** `AnsiDemo.slnx`.\n- **App project:** `src/AnsiDemo/AnsiDemo.csproj` (Exe, AssemblyName AnsiDemo, net10.0, LangVersion 13, nullable and implicit usings on, InvariantGlobalization on). A placeholder `Program.cs` prints one line.\n- **Test project:** `tests/AnsiDemo.Tests/AnsiDemo.Tests.csproj` references the app. Its only packages are Microsoft.NET.Test.Sdk 18.10.1, xunit 2.9.3 and xunit.runner.visualstudio 4.0.0. It has one project-level `<Using Include=\"Xunit\" />`, which is the only global using.\n- **Test files:** `AssemblyInfo.cs` turns off test parallelization; `SmokeTests.cs` is one trivial passing test in namespace `AnsiDemo.Tests`.\n- **Lock files:** both projects set `RestorePackagesWithLockFile`, so restore created `packages.lock.json` in each.\n- **`.gitignore`:** covers bin/, obj/, TestResults/, IDE caches, local env files and `*.actual.ansi`.\n- **`.gitattributes`:** not in the spec's file list. It marks `*.ansi` as `-text` so git line-ending conversion doesn't change golden files.\n- **`README.md`:** a one-line description plus the setup, test and run commands. The demo task will replace it."
+  },
+  "ttft_ms": 1927,
+  "type": "result",
+  "duration_ms": 77711,
+  "uuid": "28db0344-d75b-46ac-be92-b1cc8a3a8425",
+  "ttft_stream_ms": 1552,
+  "time_to_request_ms": 45,
+  "first_content_frame_ms": 1552,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

@@ -1,0 +1,5 @@
+> dotnet restore AnsiDemo.slnx
+  Determining projects to restore...
+  Restored C:\Data\AI\AnsiDemo.worktrees\_bootstrap-check\src\AnsiDemo\AnsiDemo.csproj (in 65 ms).
+  Restored C:\Data\AI\AnsiDemo.worktrees\_bootstrap-check\tests\AnsiDemo.Tests\AnsiDemo.Tests.csproj (in 175 ms).
+

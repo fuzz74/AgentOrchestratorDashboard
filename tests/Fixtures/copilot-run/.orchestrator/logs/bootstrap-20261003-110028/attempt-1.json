@@ -1,0 +1,25 @@
+{
+  "type": "result",
+  "timestamp": "2026-10-03T09:01:05.265Z",
+  "sessionId": "1ebef052-3d86-4b0f-abd5-111868a6de34",
+  "exitCode": 0,
+  "usage": {
+    "premiumRequests": 1,
+    "totalApiDurationMs": 21818,
+    "sessionDurationMs": 33080,
+    "codeChanges": {
+      "linesAdded": 76,
+      "linesRemoved": 0,
+      "filesModified": [
+        "C:\\Data\\AI\\TextKit\\TextKit.slnx",
+        "C:\\Data\\AI\\TextKit\\src\\TextKit\\TextKit.csproj",
+        "C:\\Data\\AI\\TextKit\\tests\\TextKit.Tests\\TextKit.Tests.csproj",
+        "C:\\Data\\AI\\TextKit\\src\\TextKit\\Program.cs",
+        "C:\\Data\\AI\\TextKit\\tests\\TextKit.Tests\\SmokeTests.cs",
+        "C:\\Data\\AI\\TextKit\\.gitignore",
+        "C:\\Data\\AI\\TextKit\\.gitattributes",
+        "C:\\Data\\AI\\TextKit\\README.md"
+      ]
+    }
+  }
+}
