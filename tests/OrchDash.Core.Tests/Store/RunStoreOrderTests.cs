@@ -1,7 +1,7 @@
 using OrchDash.Core.Model;
 using OrchDash.Core.Store;
 using Xunit;
-using static OrchDash.Core.Tests.Store.StoreData;
+using static OrchDash.Core.Tests.Store.RunData;
 
 namespace OrchDash.Core.Tests.Store;
 

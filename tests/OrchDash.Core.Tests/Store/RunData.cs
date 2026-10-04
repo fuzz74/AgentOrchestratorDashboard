@@ -4,7 +4,7 @@ using OrchDash.Core.Model;
 namespace OrchDash.Core.Tests.Store;
 
 // Builders for reader results. Every call creates new arrays and dictionaries.
-public static class StoreData
+public static class RunData
 {
     public static DateTimeOffset At(int hour, int minute, int second) => new(2026, 10, 3, hour, minute, second, TimeSpan.Zero);
 
