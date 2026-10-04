@@ -40,6 +40,11 @@ internal static class CopilotJson
             ? number
             : null;
 
+    public static long? Int64(JsonElement element, string name) =>
+        Property(element, name) is { ValueKind: JsonValueKind.Number } value && value.TryGetInt64(out var number)
+            ? number
+            : null;
+
     public static double? Double(JsonElement element, string name) =>
         Property(element, name) is { ValueKind: JsonValueKind.Number } value && value.TryGetDouble(out var number)
             ? number

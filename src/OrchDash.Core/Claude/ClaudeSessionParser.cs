@@ -29,6 +29,7 @@ public sealed class ClaudeSessionParser : ISessionParser
     private DateTimeOffset? _lastEventAt;
     private int _unparsedLines;
     private int? _thinkingTokens;
+    private RateLimit? _rateLimit;
     private SessionContent? _content = SessionContent.Empty;
 
     /// <param name="workDir">Folder that tool paths are shown relative to until the init line gives a <c>cwd</c>.</param>
@@ -45,6 +46,14 @@ public sealed class ClaudeSessionParser : ISessionParser
 
         var root = document.RootElement;
         var type = ClaudeJson.GetString(root, "type");
+        if (type == "rate_limit_event")
+        {
+            // 10.1: the line has no timestamp and sets nothing but the rate limit.
+            _rateLimit = ReadRateLimit(root);
+            Changed();
+            return;
+        }
+
         var subtype = ClaudeJson.GetString(root, "subtype");
         if (!IsKnown(type, subtype))
             return;
@@ -71,7 +80,10 @@ public sealed class ClaudeSessionParser : ISessionParser
     public SessionContent Build() => _content ??= new SessionContent(
         _sessionId, _model, _init,
         _calls.ToImmutable(), _items.ToImmutable(), _result,
-        _firstEventAt, _lastEventAt, _unparsedLines);
+        _firstEventAt, _lastEventAt, _unparsedLines)
+    {
+        RateLimit = _rateLimit,
+    };
 
     private static bool IsKnown(string? type, string? subtype) => type switch
     {
@@ -123,6 +135,24 @@ public sealed class ClaudeSessionParser : ISessionParser
                 AddItem(new Notice(null, time, PermissionDeniedKind, tool is null ? message : $"{tool}: {message}"));
                 break;
         }
+    }
+
+    /// <summary>The rate limit table of spec 4.3; seen at the latest event time so far.</summary>
+    private RateLimit ReadRateLimit(JsonElement root)
+    {
+        var info = ClaudeJson.GetObject(root, "rate_limit_info");
+        var windows = ClaudeJson.GetObject(info, "unifiedWindows");
+        var fiveHour = ClaudeJson.GetObject(windows, "five_hour");
+        var sevenDay = ClaudeJson.GetObject(windows, "seven_day");
+
+        return new RateLimit(
+            ClaudeJson.GetString(info, "status"),
+            ClaudeJson.GetString(info, "rateLimitType"),
+            ClaudeJson.GetDouble(fiveHour, "utilization"),
+            ClaudeJson.GetUnixSeconds(fiveHour, "resetsAt"),
+            ClaudeJson.GetDouble(sevenDay, "utilization"),
+            ClaudeJson.GetUnixSeconds(sevenDay, "resetsAt"),
+            _lastEventAt);
     }
 
     private static SessionInit ReadInit(JsonElement root)

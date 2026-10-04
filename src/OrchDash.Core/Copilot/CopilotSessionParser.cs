@@ -22,6 +22,8 @@ public sealed class CopilotSessionParser : ISessionParser
     private DateTimeOffset? _firstEventAt;
     private DateTimeOffset? _lastEventAt;
     private int _unparsedLines;
+    private string? _sentPrompt;
+    private ContextCheckpoint? _checkpoint;
     private SessionContent? _built = SessionContent.Empty;
 
     /// <param name="workDir">The session's working folder; tool paths under it are shown relative to it.</param>
@@ -48,7 +50,11 @@ public sealed class CopilotSessionParser : ISessionParser
     public SessionContent Build() => _built ??= new SessionContent(
         _sessionId, _model, null,
         _calls.ToImmutableArray(), _items.ToImmutableArray(), _result,
-        _firstEventAt, _lastEventAt, _unparsedLines);
+        _firstEventAt, _lastEventAt, _unparsedLines)
+    {
+        SentPrompt = _sentPrompt,
+        Checkpoint = _checkpoint,
+    };
 
     private void AddEvent(JsonElement root)
     {
@@ -83,6 +89,14 @@ public sealed class CopilotSessionParser : ISessionParser
                 break;
             case "tool.execution_complete":
                 CompleteTool(data, time);
+                break;
+            case "user.message":
+                // 10.2: the first prompt as sent; an empty one does not count.
+                if (_sentPrompt is null && CopilotJson.String(data, "transformedContent") is { Length: > 0 } prompt)
+                    _sentPrompt = prompt;
+                break;
+            case "session.usage_checkpoint":
+                _checkpoint = ReadCheckpoint(data);
                 break;
             case "result":
                 SetResult(root);
@@ -184,6 +198,79 @@ public sealed class CopilotSessionParser : ISessionParser
         {
             Result = new ToolResult(time, CopilotJson.Boolean(data, "success") != true, content, diff, exitCode),
         };
+    }
+
+    /// <summary>The checkpoint table of spec 4.3; missing parts give null or empty arrays.</summary>
+    private static ContextCheckpoint ReadCheckpoint(JsonElement data)
+    {
+        var model = CheckpointModel(data);
+
+        var toolNames = ImmutableArray.CreateBuilder<string>();
+        if (CopilotJson.Property(model, "tools") is { ValueKind: JsonValueKind.Array } tools)
+        {
+            foreach (var tool in tools.EnumerateArray())
+            {
+                if (CopilotJson.String(tool, "name") is { } name)
+                    toolNames.Add(name);
+            }
+        }
+
+        // A segment without a name or a token count is left out: TokenPart needs both.
+        var segments = ImmutableArray.CreateBuilder<TokenPart>();
+        if (CopilotJson.Property(model, "system_segments") is { ValueKind: JsonValueKind.Array } systemSegments)
+        {
+            foreach (var segment in systemSegments.EnumerateArray())
+            {
+                if (CopilotJson.String(segment, "segment") is { } name && CopilotJson.Int64(segment, "tokens") is { } tokens)
+                    segments.Add(new TokenPart(name, tokens));
+            }
+        }
+
+        return new ContextCheckpoint(
+            CopilotJson.Int64(model, "prompt_tokens"),
+            CopilotJson.Int64(model, "tool_tokens"),
+            toolNames.ToImmutable(),
+            segments.ToImmutable(),
+            CopilotJson.Int64(data, "totalNanoAiu"),
+            CopilotJson.Double(data, "totalPremiumRequests"));
+    }
+
+    /// <summary>
+    /// In <c>promptCacheBreakState[]</c> the entry whose conversation is <c>main</c>, else the first; in it
+    /// <c>models.&lt;lastActiveModel&gt;</c>, else the first model. A default element when there is none.
+    /// </summary>
+    private static JsonElement CheckpointModel(JsonElement data)
+    {
+        if (CopilotJson.Property(data, "promptCacheBreakState") is not { ValueKind: JsonValueKind.Array } states)
+            return default;
+
+        JsonElement entry = default;
+        foreach (var state in states.EnumerateArray())
+        {
+            if (state.ValueKind != JsonValueKind.Object)
+                continue;
+            if (CopilotJson.String(state, "conversation") == "main")
+            {
+                entry = state;
+                break;
+            }
+            if (entry.ValueKind == JsonValueKind.Undefined)
+                entry = state;
+        }
+
+        if (CopilotJson.Property(entry, "models") is not { ValueKind: JsonValueKind.Object } models)
+            return default;
+        if (CopilotJson.String(entry, "lastActiveModel") is { } active &&
+            CopilotJson.Property(models, active) is { ValueKind: JsonValueKind.Object } activeModel)
+            return activeModel;
+
+        foreach (var model in models.EnumerateObject())
+        {
+            if (model.Value.ValueKind == JsonValueKind.Object)
+                return model.Value;
+        }
+
+        return default;
     }
 
     private void SetResult(JsonElement root)
