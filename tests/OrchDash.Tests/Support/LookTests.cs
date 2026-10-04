@@ -106,6 +106,45 @@ public sealed class LookTests
     [InlineData(15_000_000, "15.0M")]
     public void Tokens_formats(long value, string expected) => Assert.Equal(expected, Look.Tokens(value));
 
+    [Theory]
+    [InlineData(0.2, "20 %")]
+    [InlineData(0.045, "5 %")]
+    [InlineData(0, "0 %")]
+    [InlineData(1, "100 %")]
+    [InlineData(0.27, "27 %")]
+    [InlineData(0.1725, "17 %")]
+    [InlineData(0.004, "0 %")]
+    [InlineData(1.5, "150 %")]
+    public void Percent_formats(double fraction, string expected) => Assert.Equal(expected, Look.Percent(fraction));
+
+    [Theory]
+    [InlineData(12_930_990_000, "12.93 AIU")]
+    [InlineData(0, "0.00 AIU")]
+    [InlineData(3_732_100_000, "3.73 AIU")]
+    [InlineData(5_000_000, "0.01 AIU")]
+    public void Aiu_formats(long nanoAiu, string expected) => Assert.Equal(expected, Look.Aiu(nanoAiu));
+
+    [Theory]
+    [InlineData(34_500, null, "34.5k")]
+    [InlineData(34_500, 200_000L, "34.5k of 200.0k (17 %)")]
+    [InlineData(34_500, 0L, "34.5k")]
+    [InlineData(34_500, -1L, "34.5k")]
+    [InlineData(950, 200_000L, "950 of 200.0k (0 %)")]
+    [InlineData(1_200_000, 1_000_000L, "1.2M of 1.0M (120 %)")]
+    public void ContextSize_formats(long tokens, long? limit, string expected) =>
+        Assert.Equal(expected, Look.ContextSize(tokens, limit));
+
+    [Fact]
+    public void ShortClock_and_DateClock_show_local_time()
+    {
+        var local = SampleRun.At(12, 6, 30);
+
+        Assert.Equal("12:06", Look.ShortClock(local));
+        Assert.Equal("2026-10-03 12:06", Look.DateClock(local));
+        Assert.Equal("12:06", Look.ShortClock(local.ToUniversalTime()));
+        Assert.Equal("2026-10-03 12:06", Look.DateClock(local.ToUniversalTime()));
+    }
+
     [Fact]
     public void Formats_do_not_follow_the_current_culture()
     {
@@ -117,6 +156,10 @@ public sealed class LookTests
             Assert.Equal("0.25 USD", Look.Usd(0.25));
             Assert.Equal("47.4k", Look.Tokens(47_400));
             Assert.Equal("3m07s", Look.Span(TimeSpan.FromSeconds(187)));
+            Assert.Equal("5 %", Look.Percent(0.045));
+            Assert.Equal("12.93 AIU", Look.Aiu(12_930_990_000));
+            Assert.Equal("34.5k of 200.0k (17 %)", Look.ContextSize(34_500, 200_000));
+            Assert.Equal("2026-10-03 12:06", Look.DateClock(SampleRun.At(12, 6, 30)));
         }
         finally
         {
