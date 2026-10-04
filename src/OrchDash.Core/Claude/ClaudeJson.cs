@@ -55,6 +55,10 @@ internal static class ClaudeJson
     public static bool TryGetArray(JsonElement element, string name, out JsonElement value) =>
         TryGetProperty(element, name, out value) && value.ValueKind == JsonValueKind.Array;
 
+    /// <summary>The property when it is an object; otherwise a default element, from which every read gives null.</summary>
+    public static JsonElement GetObject(JsonElement element, string name) =>
+        TryGetObject(element, name, out var value) ? value : default;
+
     public static string? GetString(JsonElement element, string name) =>
         TryGetProperty(element, name, out var value) ? AsString(value) : null;
 
@@ -77,6 +81,13 @@ internal static class ClaudeJson
     public static double? GetDouble(JsonElement element, string name) =>
         TryGetProperty(element, name, out var value) && value.ValueKind == JsonValueKind.Number &&
         value.TryGetDouble(out var number) && double.IsFinite(number) ? number : null;
+
+    /// <summary>A whole number of Unix seconds as a UTC time; null when it is missing or out of range.</summary>
+    public static DateTimeOffset? GetUnixSeconds(JsonElement element, string name) =>
+        GetInt64(element, name) is { } seconds &&
+        seconds >= DateTimeOffset.MinValue.ToUnixTimeSeconds() && seconds <= DateTimeOffset.MaxValue.ToUnixTimeSeconds()
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds)
+            : null;
 
     /// <summary>The value of a string element, or null for any other kind.</summary>
     public static string? AsString(JsonElement element)
