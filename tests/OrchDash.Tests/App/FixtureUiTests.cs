@@ -7,7 +7,7 @@ using Xunit;
 namespace OrchDash.Tests.App;
 
 // End to end: the snapshot of a store on each fixture in the real pages, from the overview to a conversation pop-up
-// and out with q; the fixture folder is the same afterwards (N.1).
+// and out with q; the fixture folder is the same afterwards (N.5).
 public sealed class FixtureUiTests
 {
     [Fact]

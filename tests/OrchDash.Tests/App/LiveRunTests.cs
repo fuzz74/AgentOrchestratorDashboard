@@ -6,7 +6,7 @@ using Xunit;
 namespace OrchDash.Tests.App;
 
 // N.2 with the real reader and parsers and the default poll interval: an appended log line and a changed state.json
-// are in the store's snapshot within 2 seconds.
+// are in the store's snapshot within 2 seconds. The provider stores are on empty temp folders.
 public sealed class LiveRunTests : IDisposable
 {
     private const string WorkerKey = "alpha/20261003-120000/attempt-1-worker.json";
@@ -14,8 +14,13 @@ public sealed class LiveRunTests : IDisposable
         FixtureRuns.ClaudeRepo, ".orchestrator", "logs", "audio-synth", "20261001-104634", "attempt-1-worker.json.events.jsonl");
 
     private readonly TempFolder _repo = new();
+    private readonly TempFolder _stores = new();
 
-    public void Dispose() => _repo.Dispose();
+    public void Dispose()
+    {
+        _repo.Dispose();
+        _stores.Dispose();
+    }
 
     [Fact]
     public async Task An_appended_line_and_a_changed_state_are_published_within_two_seconds()
@@ -29,7 +34,7 @@ public sealed class LiveRunTests : IDisposable
         _repo.Write($".orchestrator/logs/{WorkerKey}.prompt.md", "Build alpha.\n");
         var events = _repo.Write($".orchestrator/logs/{WorkerKey}.events.jsonl", string.Concat(lines[..5].Select(line => line + "\r\n")));
 
-        using var store = AppRunner.CreateStore(_repo.Path);
+        using var store = AppRunner.CreateStore(_repo.Path, claudeDir: _stores.Folder("claude"), copilotDir: _stores.Folder("copilot"));
         store.Start();
         Assert.Equal(TaskState.Running, Alpha(store.Current).Status);
         var session = Assert.Single(store.Current.Sessions);
