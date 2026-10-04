@@ -1,10 +1,10 @@
-using OrchDash.App;
 using OrchDash.Core.Model;
 using Xunit;
 
 namespace OrchDash.Tests.App;
 
-// End to end through RunStore with the real reader and parsers: the "facts tests can rely on" of spec 4.3, and N.1.
+// End to end through RunStore with the real reader, parsers and provider stores on the fixture store folders: the
+// "facts tests can rely on" of spec 4.3, and N.5.
 // Where the notes of earlier tasks found a fact in the spec that differs from the files, the files win (see below).
 public sealed class FixtureStoreTests
 {
@@ -70,7 +70,7 @@ public sealed class FixtureStoreTests
     {
         foreach (var repo in new[] { FixtureRuns.ClaudeRepo, FixtureRuns.CopilotRepo })
         {
-            using var store = AppRunner.CreateStore(repo);
+            using var store = FixtureRuns.CreateStore(repo);
             store.Poll();
             var first = store.Current;
 
@@ -84,21 +84,22 @@ public sealed class FixtureStoreTests
     [Fact]
     public void Starting_a_store_on_the_fixtures_writes_no_file()
     {
-        var claude = FixtureRuns.Listing(FixtureRuns.ClaudeRepo);
-        var copilot = FixtureRuns.Listing(FixtureRuns.CopilotRepo);
+        // N.5: the whole fixture folder, run folders and provider stores alike, so also no SQLite -shm, -wal or journal.
+        var before = FixtureRuns.Listing(FixtureRuns.Root);
 
-        using (var claudeStore = AppRunner.CreateStore(FixtureRuns.ClaudeRepo, TimeSpan.FromMilliseconds(20)))
-        using (var copilotStore = AppRunner.CreateStore(FixtureRuns.CopilotRepo, TimeSpan.FromMilliseconds(20)))
+        using (var claudeStore = FixtureRuns.CreateStore(FixtureRuns.ClaudeRepo, TimeSpan.FromMilliseconds(20)))
+        using (var copilotStore = FixtureRuns.CreateStore(FixtureRuns.CopilotRepo, TimeSpan.FromMilliseconds(20)))
         {
             claudeStore.Start();
             copilotStore.Start();
             Thread.Sleep(200);
             Assert.Equal(1, claudeStore.Current.Version);
             Assert.Equal(1, copilotStore.Current.Version);
+            Assert.All(claudeStore.Current.Sessions, x => Assert.NotEmpty(x.Stores.SystemPrompt));
+            Assert.All(copilotStore.Current.Sessions, x => Assert.NotEmpty(x.Stores.Calls));
         }
 
-        Assert.Equal(claude, FixtureRuns.Listing(FixtureRuns.ClaudeRepo));
-        Assert.Equal(copilot, FixtureRuns.Listing(FixtureRuns.CopilotRepo));
+        Assert.Equal(before, FixtureRuns.Listing(FixtureRuns.Root));
     }
 
     private static void AssertCommonFacts(RunSnapshot s, string repo)
@@ -107,6 +108,7 @@ public sealed class FixtureStoreTests
         Assert.Equal(repo, s.RepoPath);
         Assert.Empty(s.Problems);
         Assert.All(s.Sessions, x => Assert.Equal(0, x.Content.UnparsedLines));
+        Assert.All(s.Sessions, x => Assert.Empty(x.Unavailable));
 
         // Tasks by Wave, then Id (ordinal); sessions by StartedAt (null last), then Files.Key (ordinal).
         Assert.Equal(

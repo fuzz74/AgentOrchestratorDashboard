@@ -3,9 +3,14 @@ using OrchDash.Core.Claude;
 using OrchDash.Core.Copilot;
 using OrchDash.Core.Model;
 using OrchDash.Core.RunFolder;
+using OrchDash.Core.SessionFolder;
 using OrchDash.Core.Store;
+using OrchDash.Core.Transcript;
+using OrchDash.Core.UsageDb;
+using OrchDash.Pages.ContextWindow;
 using OrchDash.Pages.Conversation;
 using OrchDash.Pages.Overview;
+using OrchDash.Pages.Usage;
 using OrchDash.Shell;
 using XenoAtom.Terminal.UI;
 
@@ -30,9 +35,11 @@ public static class AppRunner
     /// Runs the app and returns its exit code. <paramref name="args"/>[0], when given, is the start path, resolved
     /// against <paramref name="currentDirectory"/>; otherwise the search starts at <paramref name="currentDirectory"/>.
     /// <paramref name="stderr"/> is written only before the UI starts or after <paramref name="runUi"/> has returned
-    /// or thrown, so never while the fullscreen UI is shown.
+    /// or thrown, so never while the fullscreen UI is shown. <paramref name="claudeDir"/> and
+    /// <paramref name="copilotDir"/> are the providers' folders, as <see cref="CreateStore"/> takes them.
     /// </summary>
-    public static int Run(string[] args, string currentDirectory, TextWriter stderr, Action<Visual, Func<TerminalLoopResult>> runUi)
+    public static int Run(string[] args, string currentDirectory, TextWriter stderr, Action<Visual, Func<TerminalLoopResult>> runUi,
+        string? claudeDir = null, string? copilotDir = null)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(currentDirectory);
@@ -50,7 +57,7 @@ public static class AppRunner
         try
         {
             // The store is disposed when this block is left, also by an exception, before the catch below runs.
-            using var store = CreateStore(repo);
+            using var store = CreateStore(repo, claudeDir: claudeDir, copilotDir: copilotDir);
             store.Start();
             var shell = new AppShell(CreatePages(), () => store.Current);
             runUi(shell.Root, shell.OnUpdate);
@@ -64,12 +71,39 @@ public static class AppRunner
         }
     }
 
-    /// <summary>A store on <paramref name="repoPath"/> with the real reader and the session parser of each provider.</summary>
-    public static RunStore CreateStore(string repoPath, TimeSpan? pollInterval = null) =>
-        new(repoPath, new RunFolderReader(), CreateParser, pollInterval);
+    /// <summary>
+    /// A store on <paramref name="repoPath"/> with the real reader, the session parser of each provider and the
+    /// provider stores (18.2) under <paramref name="claudeDir"/> and <paramref name="copilotDir"/>; where one is null,
+    /// <c>.claude</c> or <c>.copilot</c> in the user profile folder.
+    /// </summary>
+    public static RunStore CreateStore(string repoPath, TimeSpan? pollInterval = null, string? claudeDir = null, string? copilotDir = null)
+    {
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var stores = CreateProviderStores(claudeDir ?? Path.Combine(profile, ".claude"), copilotDir ?? Path.Combine(profile, ".copilot"));
+        return new(repoPath, new RunFolderReader(), CreateParser, pollInterval, stores: stores);
+    }
 
-    /// <summary>The pages in tab order: Overview first, then Conversation.</summary>
-    public static IReadOnlyList<IPage> CreatePages() => [new OverviewPage(), new ConversationPage()];
+    /// <summary>
+    /// The three provider stores with all four sources set: the Claude Code transcripts under
+    /// <c>&lt;claudeDir&gt;/projects</c>, one Copilot session folder store under <c>&lt;copilotDir&gt;/session-state</c>
+    /// for both the folders and the ids, and the Copilot database <c>&lt;copilotDir&gt;/session-store.db</c>. Touches no
+    /// file: a missing folder or file shows later as a reason in <c>Session.Unavailable</c> (18.3).
+    /// </summary>
+    public static ProviderStores CreateProviderStores(string claudeDir, string copilotDir)
+    {
+        ArgumentNullException.ThrowIfNull(claudeDir);
+        ArgumentNullException.ThrowIfNull(copilotDir);
+
+        var folders = new CopilotFolderStore(Path.Combine(copilotDir, "session-state"));
+        return new ProviderStores(
+            new ClaudeTranscriptStore(Path.Combine(claudeDir, "projects")),
+            folders,
+            folders,
+            new CopilotUsageReader(Path.Combine(copilotDir, "session-store.db")));
+    }
+
+    /// <summary>The pages in tab order (18.1): Overview, Conversation, Context, Usage.</summary>
+    public static IReadOnlyList<IPage> CreatePages() => [new OverviewPage(), new ConversationPage(), new ContextPage(), new UsagePage()];
 
     private static ISessionParser CreateParser(Provider provider, string? workDir) =>
         provider == Provider.Claude ? new ClaudeSessionParser(workDir) : new CopilotSessionParser(workDir);
