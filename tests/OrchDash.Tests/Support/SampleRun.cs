@@ -12,6 +12,8 @@ public static class SampleRun
     public const string AlphaWorkerKey = "alpha/20261003-120005/attempt-1-worker.json";
     public const string AlphaReviewKey = "alpha/20261003-120005/attempt-1-review-1.json";
     public const string BetaWorkerKey = "beta/20261003-121000/attempt-1-worker.json";
+    public const string GammaWorker1Key = "gamma/20261003-120005/attempt-1-worker.json";
+    public const string GammaWorker2Key = "gamma/20261003-120005/attempt-2-worker.json";
 
     public static RunSnapshot Create() => new(
         Version: 1,
@@ -35,6 +37,26 @@ public static class SampleRun
             new ProgressEntry(At(12, 20, 0), "gamma", "FAILED after 3 attempts: acceptance failed", ProgressKind.Failure),
         ],
         Problems: ["state.json: The process cannot access the file because it is being used by another process."]);
+
+    // Create() with provider-store data: exact figures and stores for the alpha sessions, a beta worker without
+    // transcript, the two failed gamma worker attempts of one Claude session, and a version warning.
+    public static RunSnapshot CreateEnriched()
+    {
+        var run = Create();
+        var gammaStores = GammaStores();
+        return run with
+        {
+            Sessions =
+            [
+                EnrichedAlphaWorker(run.Sessions[0]),
+                GammaWorker1(gammaStores),
+                EnrichedAlphaReview(run.Sessions[1]),
+                run.Sessions[2] with { Unavailable = ["no transcript"] },
+                GammaWorker2(gammaStores),
+            ],
+            Problems = [.. run.Problems, $"Claude Code 2.1.3: OrchDash was made for {TestedVersions.ClaudeCode}"],
+        };
+    }
 
     // 2026-10-03 at the given local wall-clock time, with the local UTC offset.
     public static DateTimeOffset At(int hour, int minute, int second) =>
@@ -97,11 +119,11 @@ public static class SampleRun
         Detail: "waiting for beta");
 
     private static SessionFiles Files(string key, string taskId, AgentRole role, int reviewTry,
-        bool hasResultFile, DateTimeOffset promptWrittenAt)
+        bool hasResultFile, DateTimeOffset promptWrittenAt, int attempt = 1)
     {
         var resultPath = LogsDir + key.Replace('/', '\\');
         return new SessionFiles(
-            key, taskId, role, StartFolder: key.Split('/')[1], Attempt: 1, reviewTry, IsNudge: false,
+            key, taskId, role, StartFolder: key.Split('/')[1], attempt, reviewTry, IsNudge: false,
             resultPath, resultPath + ".prompt.md", resultPath + ".events.jsonl", resultPath + ".stderr",
             hasResultFile, HasEventsFile: true, promptWrittenAt);
     }
@@ -290,5 +312,253 @@ public static class SampleRun
             Provider.Claude, SessionState.Running,
             "You are a worker agent of the orchestrator.\nTask: beta - Beta checker\n\nImplement the beta checker on top of the alpha parser.",
             At(12, 10, 5), content);
+    }
+
+    private static Session EnrichedAlphaWorker(Session session)
+    {
+        var calls = session.Content.Calls;
+        ImmutableArray<ModelCall> enriched =
+        [
+            calls[0] with { Usage = calls[0].Usage! with { Output = 640 }, ThinkingTokens = 210, StopReason = "tool_use" },
+            calls[1] with { Usage = calls[1].Usage! with { Output = 2_460 }, ThinkingTokens = 1_180, StopReason = "end_turn" },
+        ];
+
+        var stores = new StoreData(
+            CliVersion: "2.1.3",
+            SystemPrompt:
+            [
+                "You are Claude Code, Anthropic's official CLI for Claude.",
+                "You are an interactive agent that helps users with software engineering tasks.\n" +
+                "Use the instructions below and the tools available to you to assist the user.",
+            ],
+            Tools:
+            [
+                new ToolDefinition("Read", "Reads a file from the local filesystem.", """
+                    {
+                      "type": "object",
+                      "properties": {
+                        "file_path": {
+                          "type": "string",
+                          "description": "The absolute path to the file to read"
+                        }
+                      },
+                      "required": [
+                        "file_path"
+                      ]
+                    }
+                    """),
+                new ToolDefinition("Bash", "Executes a given bash command and returns its output.", """
+                    {
+                      "type": "object",
+                      "properties": {
+                        "command": {
+                          "type": "string",
+                          "description": "The command to execute"
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "What the command does"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ]
+                    }
+                    """),
+            ],
+            Injected:
+            [
+                new InjectedItem("skill_listing", "system", At(12, 0, 8),
+                    "<system-reminder>\nThe following skills are available: code-review, simplify\n</system-reminder>"),
+                new InjectedItem("nested_memory", "system", At(12, 0, 9),
+                    "<system-reminder>\nContents of C:\\Work\\SampleRepo.worktrees\\alpha\\CLAUDE.md:\nRun dotnet test before you finish.\n</system-reminder>"),
+                new InjectedItem("total_tokens_reminder", "system", At(12, 1, 30),
+                    "<system-reminder>\nToken usage: 19200/200000; 180800 remaining\n</system-reminder>"),
+            ],
+            Calls: [.. enriched.Select(c => new CallFigures(c.Id, c.StartedAt, c.Usage!, c.ThinkingTokens, null, null, c.StopReason))],
+            CostUsd: 0.25, LinesAdded: 12, LinesRemoved: 3, UnparsedLines: 0);
+
+        return session with
+        {
+            Content = session.Content with
+            {
+                Calls = enriched,
+                RateLimit = new RateLimit("allowed", "five_hour",
+                    0.2, At(17, 0, 0),
+                    0.27, At(9, 0, 0).AddDays(4),
+                    At(12, 0, 11)),
+            },
+            Stores = stores,
+        };
+    }
+
+    private static Session EnrichedAlphaReview(Session session)
+    {
+        var calls = session.Content.Calls;
+        ImmutableArray<ModelCall> enriched =
+        [
+            calls[0] with
+            {
+                Usage = new TokenUsage(20, 0, 14_180, 310), ThinkingTokens = 96, NanoAiu = 1_850_000_000,
+                Duration = TimeSpan.FromMilliseconds(4_200), StopReason = "tool_calls",
+            },
+            calls[1] with
+            {
+                Usage = new TokenUsage(10, 14_180, 2_760, 905), ThinkingTokens = 412, NanoAiu = 2_140_000_000,
+                Duration = TimeSpan.FromMilliseconds(11_800), StopReason = "stop",
+            },
+        ];
+
+        var stores = StoreData.Empty with
+        {
+            CliVersion = TestedVersions.CopilotCli,
+            SystemPrompt =
+            [
+                "You are the GitHub Copilot CLI, a terminal assistant built by GitHub.",
+                "<tone_and_style>\nBe concise and direct. Do not add comments unless asked.\n</tone_and_style>",
+            ],
+            Calls = [.. enriched.Select(c => new CallFigures(null, c.StartedAt, c.Usage!, c.ThinkingTokens, c.NanoAiu, c.Duration, c.StopReason))],
+        };
+
+        return session with
+        {
+            Content = session.Content with
+            {
+                Calls = enriched,
+                SentPrompt = "<current_datetime>2026-10-03T12:06:25+02:00</current_datetime>\n\n" + session.Prompt,
+                Checkpoint = new ContextCheckpoint(
+                    PromptTokens: enriched[1].Usage!.Context,
+                    ToolTokens: 680,
+                    ToolNames: ["view", "powershell"],
+                    SystemSegments:
+                    [
+                        new TokenPart("identity", 310),
+                        new TokenPart("tone_and_style", 227),
+                        new TokenPart("tool_instructions", 1_540),
+                    ],
+                    NanoAiu: enriched.Sum(c => c.NanoAiu!.Value),
+                    PremiumRequests: 1),
+            },
+            Stores = stores,
+        };
+    }
+
+    private const string GammaSessionId = "6e2d9a14-0c3b-4f57-8a2e-91b4c7d05f36";
+    private const string GammaModel = "claude-opus-4-5";
+
+    // One transcript holds both attempts of the resumed gamma session, so both share this instance.
+    private static StoreData GammaStores() => StoreData.Empty with
+    {
+        CliVersion = "2.1.3",
+        SystemPrompt = ["You are Claude Code, Anthropic's official CLI for Claude."],
+        Tools =
+        [
+            new ToolDefinition("Bash", "Executes a given bash command and returns its output.", """
+                {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "description": "The command to execute"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+                """),
+        ],
+    };
+
+    private static SessionInit GammaInit() => new(@"C:\Work\SampleRepo.worktrees\gamma", "bypassPermissions", "2.1.3",
+        ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "StructuredOutput"], []);
+
+    private static Session GammaWorker1(StoreData stores)
+    {
+        const string call1 = "msg_01E1gamma";
+        const string call2 = "msg_02F2gamma";
+
+        var content = new SessionContent(
+            SessionId: GammaSessionId,
+            Model: GammaModel,
+            Init: GammaInit(),
+            Calls:
+            [
+                new ModelCall(call1, GammaModel, At(12, 0, 30), new TokenUsage(4, 9_000, 14_000, 420)),
+                new ModelCall(call2, GammaModel, At(12, 2, 40), new TokenUsage(2, 23_000, 3_500, 1_850)),
+            ],
+            Items:
+            [
+                new AssistantText(call1, At(12, 0, 32), "I will add the Formatter class in src/Gamma."),
+                new ToolCall(call1, At(12, 0, 35), "toolu_01Write", "Write",
+                    """{"file_path":"C:\\Work\\SampleRepo.worktrees\\gamma\\src\\Gamma\\Formatter.cs","content":"namespace Gamma;\n\npublic static class Formatter\n{\n}"}""",
+                    "Write src/Gamma/Formatter.cs",
+                    new ToolResult(At(12, 0, 36), false,
+                        "File created successfully at: C:\\Work\\SampleRepo.worktrees\\gamma\\src\\Gamma\\Formatter.cs", null, null)),
+                new ToolCall(call2, At(12, 2, 45), "toolu_02Bash", "Bash",
+                    """{"command":"dotnet test tests/Gamma","description":"Run the gamma tests"}""",
+                    "Bash dotnet test tests/Gamma",
+                    new ToolResult(At(12, 3, 50), true, "Failed!  - Failed: 2, Passed: 4, Skipped: 0, Total: 6", null, 1)),
+                new AssistantText(call2, At(12, 4, 20), "Two gamma tests still fail on empty input."),
+            ],
+            Result: new SessionResult(
+                IsError: true, Subtype: "error_max_turns", Text: null, StructuredJson: null,
+                Worker: null, Review: null,
+                CostUsd: 0.29, Turns: 6, Duration: TimeSpan.FromSeconds(240), ApiDuration: TimeSpan.FromSeconds(190),
+                Usage: new TokenUsage(6, 32_000, 17_500, 2_270), ContextWindow: 200_000,
+                PremiumRequests: null, LinesAdded: null, LinesRemoved: null),
+            FirstEventAt: At(12, 0, 30),
+            LastEventAt: At(12, 4, 30),
+            UnparsedLines: 0);
+
+        return new Session(
+            Files(GammaWorker1Key, "gamma", AgentRole.Worker, 0, hasResultFile: true, At(12, 0, 25), attempt: 1),
+            Provider.Claude, SessionState.Failed,
+            "You are a worker agent of the orchestrator.\nTask: gamma - Gamma formatter\n\nImplement the gamma formatter in src/Gamma.",
+            At(12, 0, 30), content) { Stores = stores };
+    }
+
+    private static Session GammaWorker2(StoreData stores)
+    {
+        const string call1 = "msg_03G3gamma";
+        const string call2 = "msg_04H4gamma";
+
+        var content = new SessionContent(
+            SessionId: GammaSessionId,
+            Model: GammaModel,
+            Init: GammaInit(),
+            Calls:
+            [
+                new ModelCall(call1, GammaModel, At(12, 11, 0), new TokenUsage(3, 26_500, 4_200, 610)),
+                new ModelCall(call2, GammaModel, At(12, 14, 30), new TokenUsage(1, 30_700, 2_800, 2_240)),
+            ],
+            Items:
+            [
+                new Thinking(call1, At(12, 11, 0), "The feedback says empty input must be handled before formatting.", null),
+                new ToolCall(call1, At(12, 11, 5), "toolu_03Edit", "Edit",
+                    """{"file_path":"C:\\Work\\SampleRepo.worktrees\\gamma\\src\\Gamma\\Formatter.cs","old_string":"{\n}","new_string":"{\n    public static string Format(string? input) => input ?? \"\";\n}"}""",
+                    "Edit src/Gamma/Formatter.cs",
+                    new ToolResult(At(12, 11, 6), false, "The file src/Gamma/Formatter.cs has been updated.", null, null)),
+                new ToolCall(call2, At(12, 14, 35), "toolu_04Bash", "Bash",
+                    """{"command":"dotnet test tests/Gamma","description":"Run the gamma tests"}""",
+                    "Bash dotnet test tests/Gamma",
+                    new ToolResult(At(12, 15, 40), true, "Failed!  - Failed: 2, Passed: 4, Skipped: 0, Total: 6", null, 1)),
+                new AssistantText(call2, At(12, 16, 10), "The two empty-input tests still fail."),
+            ],
+            Result: new SessionResult(
+                IsError: true, Subtype: "error_max_turns", Text: null, StructuredJson: null,
+                Worker: null, Review: null,
+                CostUsd: 0.33, Turns: 5, Duration: TimeSpan.FromSeconds(320), ApiDuration: TimeSpan.FromSeconds(260),
+                Usage: new TokenUsage(4, 57_200, 7_000, 2_850), ContextWindow: 200_000,
+                PremiumRequests: null, LinesAdded: null, LinesRemoved: null),
+            FirstEventAt: At(12, 11, 0),
+            LastEventAt: At(12, 16, 20),
+            UnparsedLines: 0);
+
+        return new Session(
+            Files(GammaWorker2Key, "gamma", AgentRole.Worker, 0, hasResultFile: true, At(12, 10, 50), attempt: 2),
+            Provider.Claude, SessionState.Failed,
+            "Attempt 2 of task gamma - Gamma formatter.\nThe acceptance command failed: 2 tests failed.\n\nHandle empty input before formatting.",
+            At(12, 11, 0), content) { Stores = stores };
     }
 }
