@@ -4,7 +4,8 @@ using OrchDash.Core.Model;
 namespace OrchDash.Core.Store;
 
 // Polls the run folder and the session logs and publishes an immutable RunSnapshot when the content
-// changed (spec 5.1-5.9). Polls are serialised; Current may be read from any thread.
+// changed (spec 5.1-5.9), with the data of the provider stores added to each session (spec 14). Polls are
+// serialised; Current may be read from any thread.
 public sealed class RunStore : IDisposable
 {
     private const string NoPlanProblem = "tasks.json: no plan in this read; keeping the previous plan and tasks";
@@ -14,6 +15,7 @@ public sealed class RunStore : IDisposable
     private readonly SessionParserFactory _parsers;
     private readonly TimeSpan _pollInterval;
     private readonly TimeProvider _time;
+    private readonly ProviderStores? _stores;
     private readonly Lock _pollLock = new();
     private readonly ManualResetEventSlim _stop = new(false);
     private readonly Dictionary<string, SessionTracker> _trackers = new(StringComparer.Ordinal);
@@ -23,7 +25,7 @@ public sealed class RunStore : IDisposable
     private bool _disposed;
 
     public RunStore(string repoPath, IRunFolderReader reader, SessionParserFactory parsers,
-                    TimeSpan? pollInterval = null, TimeProvider? time = null)
+                    TimeSpan? pollInterval = null, TimeProvider? time = null, ProviderStores? stores = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(repoPath);
         ArgumentNullException.ThrowIfNull(reader);
@@ -36,6 +38,7 @@ public sealed class RunStore : IDisposable
         _parsers = parsers;
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(1);
         _time = time ?? TimeProvider.System;
+        _stores = stores;
         _current = RunSnapshot.Empty(repoPath);
     }
 
@@ -129,8 +132,10 @@ public sealed class RunStore : IDisposable
             tasks = [.. OrEmpty(data.Tasks).OrderBy(t => t.Wave).ThenBy(t => t.Id, StringComparer.Ordinal)];
         }
 
-        var sessions = ReadSessions(OrEmpty(data.Sessions), data.Run.Phase);
-        return new RunSnapshot(0, now, _repoPath, data.Run, plan, tasks, sessions,
+        // Spec 14.1-14.7: the provider stores' data; their problem lines follow the ones above.
+        var merged = ProviderMerge.Apply(ReadSessions(OrEmpty(data.Sessions), data.Run.Phase), WorkDir, _stores);
+        problems.AddRange(merged.Problems);
+        return new RunSnapshot(0, now, _repoPath, data.Run, plan, tasks, merged.Sessions,
             OrEmpty(data.Progress), problems.ToImmutable());
     }
 
