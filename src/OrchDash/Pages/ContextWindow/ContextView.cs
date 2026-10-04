@@ -32,6 +32,9 @@ internal sealed class ContextView
     private readonly SelectableList _partList;
     private readonly ScrollViewer[] _focusOrder;
 
+    private string? _shownKey;
+    private int _showing;
+
     private RunSnapshot? _sessionsFor;
     private ImmutableArray<Session> _sessions = [];
     private ImmutableArray<ImmutableArray<string>> _sessionRows = [];
@@ -122,7 +125,9 @@ internal sealed class ContextView
     private void MoveFocus(int direction)
     {
         var current = Array.FindIndex(_focusOrder, view => view.HasFocus);
-        var next = current < 0 ? 0 : (current + direction + _focusOrder.Length) % _focusOrder.Length;
+        var next = current >= 0 ? (current + direction + _focusOrder.Length) % _focusOrder.Length
+            : direction > 0 ? 0
+            : _focusOrder.Length - 1;
         FocusList(next);
     }
 
@@ -170,17 +175,21 @@ internal sealed class ContextView
 
     private ListSelection SessionSelection() => new(null, SelectedSessionIndex());
 
-    /// <summary>Selects a session; a different session starts at its last call and its first part (15.7).</summary>
-    private void SelectSession(int index)
+    private void SelectSession(int index) => _context.SelectedSessionKey.Value = Sessions()[index].Files.Key;
+
+    /// <summary>
+    /// The number of the current showing of the selected session: it grows each time the page shows another session,
+    /// whether this page or another one changed the key. A cursor of an earlier showing is ignored, so a newly shown
+    /// session starts at its last call and its first part (15.7).
+    /// </summary>
+    private int Showing(Session session)
     {
-        var key = Sessions()[index].Files.Key;
-        if (SelectedSession()?.Files.Key == key)
+        if (session.Files.Key != _shownKey)
         {
-            return;
+            _shownKey = session.Files.Key;
+            _showing++;
         }
-        _callCursor.Value = ListCursor.None;
-        _partCursor.Value = ListCursor.None;
-        _context.SelectedSessionKey.Value = key;
+        return _showing;
     }
 
     /// <summary>The make-up of the selected session, cached per snapshot and session; null without sessions.</summary>
@@ -213,7 +222,8 @@ internal sealed class ContextView
         {
             return new Markup(Look.Tag("muted", "no context sizes"));
         }
-        return new LineChart(values).Minimum(0).Maximum(values.Max()).Stretch();
+        // A maximum of at least 1 keeps the scale above the minimum when every context is 0.
+        return new LineChart(values).Minimum(0).Maximum(Math.Max(1, values.Max())).Stretch();
     }
 
     private ImmutableArray<ImmutableArray<string>> CallRows() => Makeup(SelectedSession()) is not null ? _callRows : [];
@@ -229,13 +239,12 @@ internal sealed class ContextView
         {
             return new ListSelection(null, -1);
         }
-        var key = session.Files.Key;
         var count = makeup.Calls.Length;
         var cursor = _callCursor.Value;
-        var index = cursor.SessionKey != key ? LastCallOf(session, makeup)
+        var index = cursor.Showing != Showing(session) ? LastCallOf(session, makeup)
             : cursor.AtEnd && session.State == SessionState.Running ? count - 1
             : Math.Min(cursor.Index, count - 1);
-        return new ListSelection(key, index);
+        return new ListSelection(session.Files.Key, index);
     }
 
     /// <summary>The chain index of the session's own last call, or the chain's last call when it has none.</summary>
@@ -257,7 +266,7 @@ internal sealed class ContextView
     {
         if (SelectedSession() is { } session)
         {
-            _callCursor.Value = new ListCursor(session.Files.Key, index, index == CallRows().Length - 1);
+            _callCursor.Value = new ListCursor(Showing(session), index, index == CallRows().Length - 1);
         }
     }
 
@@ -322,7 +331,7 @@ internal sealed class ContextView
         return (_parts, _partRows);
     }
 
-    /// <summary>The selected part: the user's pick by position within the selected session (15.14), else the first.</summary>
+    /// <summary>The selected part: the user's pick by position in this showing of the session (15.14), else the first.</summary>
     private ListSelection PartSelection()
     {
         var session = SelectedSession();
@@ -331,17 +340,16 @@ internal sealed class ContextView
         {
             return new ListSelection(null, -1);
         }
-        var key = session.Files.Key;
         var cursor = _partCursor.Value;
-        var index = cursor.SessionKey != key ? 0 : Math.Min(cursor.Index, count - 1);
-        return new ListSelection((key, SelectedCall()), index);
+        var index = cursor.Showing != Showing(session) ? 0 : Math.Min(cursor.Index, count - 1);
+        return new ListSelection((session.Files.Key, SelectedCall()), index);
     }
 
     private void SelectPart(int index)
     {
         if (SelectedSession() is { } session)
         {
-            _partCursor.Value = new ListCursor(session.Files.Key, index, false);
+            _partCursor.Value = new ListCursor(Showing(session), index, false);
         }
     }
 

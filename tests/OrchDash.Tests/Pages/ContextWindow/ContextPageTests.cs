@@ -110,6 +110,39 @@ public sealed class ContextPageTests
     }
 
     [Fact]
+    public void A_click_on_the_session_shown_without_a_key_sets_the_key()
+    {
+        using var host = Start();
+
+        host.ClickText(AlphaWorkerRow[2..]);
+
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.AlphaWorkerKey}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_key_set_by_another_page_starts_the_session_at_its_last_call_and_first_part()
+    {
+        using var host = Start();
+        host.Press(TerminalKey.Tab);
+        host.Press(TerminalKey.Up);
+        host.Press(TerminalKey.Tab);
+        host.Press(TerminalKey.Down);
+        Assert.StartsWith("call 1", Selected(host, "Calls"), StringComparison.Ordinal);
+        Assert.StartsWith("System prompt     block 2", Selected(host, "Parts"), StringComparison.Ordinal);
+
+        host.Type('2');
+        host.Type('b');
+        Assert.Equal(BetaRow, Selected(host, "Sessions"));
+        host.Type('2');
+        host.Type('a');
+
+        Assert.Equal(AlphaWorkerRow, Selected(host, "Sessions"));
+        Assert.StartsWith("call 2", Selected(host, "Calls"), StringComparison.Ordinal);
+        Assert.StartsWith("System prompt     block 1", Selected(host, "Parts"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_key_that_matches_no_session_shows_the_first_session()
     {
         using var host = Start();
@@ -120,6 +153,9 @@ public sealed class ContextPageTests
 
         Assert.Equal(AlphaWorkerRow, Selected(host, "Sessions"));
         Assert.Contains(AlphaWorkerHeader, host.Frame(), StringComparison.Ordinal);
+        host.ClickText(AlphaWorkerRow[2..]);
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.AlphaWorkerKey}", host.Frame(), StringComparison.Ordinal);
     }
 
     [Fact]
