@@ -1,0 +1,5 @@
+> dotnet restore AnsiDemo.slnx
+  Determining projects to restore...
+  Restored C:\Data\AI\AnsiDemo.worktrees\audio-synth\src\AnsiDemo\AnsiDemo.csproj (in 83 ms).
+  Restored C:\Data\AI\AnsiDemo.worktrees\audio-synth\tests\AnsiDemo.Tests\AnsiDemo.Tests.csproj (in 248 ms).
+

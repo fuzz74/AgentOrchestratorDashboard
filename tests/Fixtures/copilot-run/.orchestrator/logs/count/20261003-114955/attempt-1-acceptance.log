@@ -1,0 +1,14 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  TextKit -> C:\Data\AI\TextKit.worktrees\count\src\TextKit\bin\Debug\net10.0\TextKit.dll
+  TextKit.Tests -> C:\Data\AI\TextKit.worktrees\count\tests\TextKit.Tests\bin\Debug\net10.0\TextKit.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.11
+Test run for C:\Data\AI\TextKit.worktrees\count\tests\TextKit.Tests\bin\Debug\net10.0\TextKit.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    10, Skipped:     0, Total:    10, Duration: 41 ms - TextKit.Tests.dll (net10.0)
