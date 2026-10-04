@@ -33,15 +33,34 @@ internal static class SnapshotComparer
     private static bool SameSession(Session a, Session b) =>
         ReferenceEquals(a, b)
         || SameSessionContent(a.Content, b.Content)
-            && a == (b with { Content = a.Content });
+            && SameStores(a.Stores, b.Stores)
+            && SameItems(a.Unavailable, b.Unavailable)
+            && a == (b with { Content = a.Content, Stores = a.Stores, Unavailable = a.Unavailable });
 
+    // ModelCall and RateLimit hold no arrays, so record equality compares them by content.
     private static bool SameSessionContent(SessionContent a, SessionContent b) =>
         ReferenceEquals(a, b)
         || SameInit(a.Init, b.Init)
             && SameItems(a.Calls, b.Calls)
             && SameItems(a.Items, b.Items)
             && SameResult(a.Result, b.Result)
-            && a == (b with { Init = a.Init, Calls = a.Calls, Items = a.Items, Result = a.Result });
+            && SameCheckpoint(a.Checkpoint, b.Checkpoint)
+            && a == (b with { Init = a.Init, Calls = a.Calls, Items = a.Items, Result = a.Result, Checkpoint = a.Checkpoint });
+
+    private static bool SameStores(StoreData a, StoreData b) =>
+        ReferenceEquals(a, b)
+        || SameItems(a.SystemPrompt, b.SystemPrompt)
+            && SameItems(a.Tools, b.Tools)
+            && SameItems(a.Injected, b.Injected)
+            && SameItems(a.Calls, b.Calls)
+            && a == (b with { SystemPrompt = a.SystemPrompt, Tools = a.Tools, Injected = a.Injected, Calls = a.Calls });
+
+    private static bool SameCheckpoint(ContextCheckpoint? a, ContextCheckpoint? b) =>
+        ReferenceEquals(a, b)
+        || a is not null && b is not null
+            && SameItems(a.ToolNames, b.ToolNames)
+            && SameItems(a.SystemSegments, b.SystemSegments)
+            && a == (b with { ToolNames = a.ToolNames, SystemSegments = a.SystemSegments });
 
     private static bool SameInit(SessionInit? a, SessionInit? b) =>
         ReferenceEquals(a, b)
