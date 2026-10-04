@@ -6,7 +6,7 @@ namespace OrchDash.Core.Tests.Fixtures;
 
 public sealed class FixtureFilesTests
 {
-    private const long MaxFixtureBytes = 4 * 1024 * 1024;
+    private const long MaxFixtureBytes = 6 * 1024 * 1024;
     private const int MaxEphemeralLinesPerType = 5;
     private const string EphemeralMarker = "\"ephemeral\":true";
 
@@ -109,11 +109,44 @@ public sealed class FixtureFilesTests
         "logs/count-integration-setup.log.stderr",
     ];
 
+    // Folder of the provider-store copies; holds FixturePaths.ClaudeStore and FixturePaths.CopilotStore.
+    private static readonly string StoresDir = Path.Combine(FixturePaths.Root, "stores");
+
+    // Relative to StoresDir; the fixture manifest in spec section 4.3.
+    private static readonly string[] StoreFiles =
+    [
+        "claude/projects/C--Data-AI-AnsiDemo/60e2b369-7dd9-4eeb-b389-cdadd402e942.jsonl",
+        "claude/projects/C--Data-AI-AnsiDemo-worktrees-audio-synth/66a6a33c-01ca-42bf-85bb-4eec9505a991.jsonl",
+        "claude/projects/C--Data-AI-AnsiDemo-worktrees-audio-synth/210c86fa-485b-48c1-8808-6dac62e28c71.jsonl",
+        "copilot/session-state/1ebef052-3d86-4b0f-abd5-111868a6de34/workspace.yaml",
+        "copilot/session-state/1ebef052-3d86-4b0f-abd5-111868a6de34/events.jsonl",
+        "copilot/session-state/483087e5-0b46-4aa4-ad51-a9cb81de2f9d/workspace.yaml",
+        "copilot/session-state/483087e5-0b46-4aa4-ad51-a9cb81de2f9d/events.jsonl",
+        "copilot/session-state/632962e6-b77b-473f-8159-fa68fc99acba/workspace.yaml",
+        "copilot/session-state/632962e6-b77b-473f-8159-fa68fc99acba/events.jsonl",
+        "copilot/session-state/905a692e-5150-4700-8ea7-ac94558036db/workspace.yaml",
+        "copilot/session-state/905a692e-5150-4700-8ea7-ac94558036db/events.jsonl",
+        "copilot/session-state/93a2aa4b-22ca-410a-bef8-d28ca63c86ae/workspace.yaml",
+        "copilot/session-state/93a2aa4b-22ca-410a-bef8-d28ca63c86ae/events.jsonl",
+        "copilot/session-state/9db7bfa4-3063-4400-93f0-97f8a68e0d91/workspace.yaml",
+        "copilot/session-state/9db7bfa4-3063-4400-93f0-97f8a68e0d91/events.jsonl",
+        "copilot/session-state/ae783abf-0989-4988-88c1-089deac14062/workspace.yaml",
+        "copilot/session-state/ae783abf-0989-4988-88c1-089deac14062/events.jsonl",
+        "copilot/session-state/c61fb851-7815-4f6a-9f37-9e82a52e3ece/workspace.yaml",
+        "copilot/session-state/c61fb851-7815-4f6a-9f37-9e82a52e3ece/events.jsonl",
+        "copilot/session-state/d92e413e-38cc-401c-8118-611e46e77210/workspace.yaml",
+        "copilot/session-state/d92e413e-38cc-401c-8118-611e46e77210/events.jsonl",
+        "copilot/session-state/f7dfd185-96f7-4770-99c9-5d660aba6c5c/workspace.yaml",
+        "copilot/session-state/f7dfd185-96f7-4770-99c9-5d660aba6c5c/events.jsonl",
+        "copilot/session-store.db",
+    ];
+
     [Fact]
     public void Every_manifest_file_is_in_the_test_output()
     {
         var missing = ClaudeFiles.Select(f => Path.Combine(FixturePaths.ClaudeRunDir, f))
             .Concat(CopilotFiles.Select(f => Path.Combine(FixturePaths.CopilotRunDir, f)))
+            .Concat(StoreFiles.Select(f => Path.Combine(StoresDir, f)))
             .Where(path => !File.Exists(path))
             .ToList();
 
@@ -128,7 +161,22 @@ public sealed class FixtureFilesTests
     }
 
     [Fact]
-    public void Fixture_folder_is_at_most_4_MB()
+    public void Stores_folder_holds_only_manifest_files()
+    {
+        Assert.Equal(StoreFiles.Order(StringComparer.Ordinal), FilesUnder(StoresDir));
+    }
+
+    [Fact]
+    public void Store_paths_are_inside_the_stores_folder()
+    {
+        Assert.Equal(Path.Combine(StoresDir, "claude"), FixturePaths.ClaudeStore);
+        Assert.Equal(Path.Combine(StoresDir, "copilot"), FixturePaths.CopilotStore);
+        Assert.True(Directory.Exists(Path.Combine(FixturePaths.ClaudeStore, "projects")));
+        Assert.True(Directory.Exists(Path.Combine(FixturePaths.CopilotStore, "session-state")));
+    }
+
+    [Fact]
+    public void Fixture_folder_is_at_most_6_MB()
     {
         var total = new DirectoryInfo(FixturePaths.Root)
             .EnumerateFiles("*", SearchOption.AllDirectories)

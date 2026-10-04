@@ -52,4 +52,51 @@ bytes are written unchanged. The Claude run is not trimmed.
 | `logs/count/20261003-115126/attempt-1-resolver.json.events.jsonl` | 1035 | 105 |
 | `logs/count/20261003-115126/attempt-1-review-1.json.events.jsonl` | 262 | 53 |
 
-After trimming the whole folder is about 2.5 MB; `FixtureFilesTests` fails above 4 MB.
+## Provider stores
+
+`stores/` holds what Claude Code and Copilot CLI kept in their own stores about the sessions of
+the two runs. The tests find it through `FixturePaths.ClaudeStore` and `FixturePaths.CopilotStore`.
+
+| Target | Stands for | Read by |
+| --- | --- | --- |
+| `stores/claude` | `%USERPROFILE%\.claude` | the Claude transcript store (`projects/*/<sessionId>.jsonl`) |
+| `stores/copilot` | `%USERPROFILE%\.copilot` | the Copilot session folder store (`session-state/<sessionId>/`) and usage reader (`session-store.db`) |
+
+`claude` stands for `.claude` and `copilot` for `.copilot`, so that no fixture folder has a dot
+name.
+
+Source: the staging folder
+`C:\Data\AI\AgentOrchestratorDashboardPitch\part2-fixture-sources\stores`, which was prepared on
+2026-10-04 from `%USERPROFILE%\.claude` and `%USERPROFILE%\.copilot` on the PC that made the
+fixture runs. Copied on 2026-10-04, byte for byte (`File.Copy`), keeping the relative paths,
+and checked by the SHA-256 of every file. `session-store.db` is a binary SQLite file.
+
+### Selection
+
+The 24 files of the fixture manifest (2,313,084 bytes); `FixtureFilesTests` lists each one.
+
+| Files | Sessions |
+| --- | --- |
+| `claude/projects/C--Data-AI-AnsiDemo/60e2b369-7dd9-4eeb-b389-cdadd402e942.jsonl` | `claude-run` bootstrap |
+| `claude/projects/C--Data-AI-AnsiDemo-worktrees-audio-synth/66a6a33c-01ca-42bf-85bb-4eec9505a991.jsonl` and `210c86fa-485b-48c1-8808-6dac62e28c71.jsonl` | `claude-run` `audio-synth` worker and review |
+| `copilot/session-state/<sessionId>/workspace.yaml` and `events.jsonl` | the 10 sessions of `copilot-run`: `1ebef052-3d86-4b0f-abd5-111868a6de34`, `483087e5-0b46-4aa4-ad51-a9cb81de2f9d`, `632962e6-b77b-473f-8159-fa68fc99acba`, `905a692e-5150-4700-8ea7-ac94558036db`, `93a2aa4b-22ca-410a-bef8-d28ca63c86ae`, `9db7bfa4-3063-4400-93f0-97f8a68e0d91`, `ae783abf-0989-4988-88c1-089deac14062`, `c61fb851-7815-4f6a-9f37-9e82a52e3ece`, `d92e413e-38cc-401c-8118-611e46e77210`, `f7dfd185-96f7-4770-99c9-5d660aba6c5c` |
+| `copilot/session-store.db` | the 10 sessions of `copilot-run` |
+
+### Preparation
+
+The staging folder was made from the real stores by these rules; the copy into this folder
+changed nothing.
+
+1. Transcripts: whole files; the user's email address is replaced by `user@example.com` and the
+   organisation id by `00000000-0000-0000-0000-000000000000`.
+2. Session folders: `workspace.yaml` unchanged; `events.jsonl` keeps the first 2 lines of each
+   `type`.
+3. Database: a new file with the real schema (ordinary tables and indexes, without the full-text
+   index), the row of `schema_version`, and the rows of `sessions` and `assistant_usage_events`
+   of the 10 sessions. It is in rollback-journal mode, so a read-only connection creates no file
+   next to it.
+
+## Size
+
+The whole folder is about 4.9 MB: the two runs about 2.6 MB and `stores` 2,313,084 bytes;
+`FixtureFilesTests` fails above 6 MB (6 MiB).
