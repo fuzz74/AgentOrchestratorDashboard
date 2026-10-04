@@ -102,4 +102,26 @@ public static class Look
             return (n / 1_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "k";
         return (n / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M";
     }
+
+    // 0.2 -> "20 %", 0.045 -> "5 %"; whole percent, midpoint away from zero
+    public static string Percent(double fraction) =>
+        Math.Round(fraction * 100, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture) + " %";
+
+    // 12_930_990_000 -> "12.93 AIU"; nano-AIU / 1e9, 2 decimals
+    public static string Aiu(long nanoAiu) =>
+        (nanoAiu / 1e9).ToString("0.00", CultureInfo.InvariantCulture) + " AIU";
+
+    // "34.5k", or "34.5k of 200.0k (17 %)" with a limit above 0
+    public static string ContextSize(long tokens, long? limit) =>
+        limit is > 0
+            ? $"{Tokens(tokens)} of {Tokens(limit.Value)} ({Percent((double)tokens / limit.Value)})"
+            : Tokens(tokens);
+
+    // local "HH:mm"
+    public static string ShortClock(DateTimeOffset t) =>
+        t.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    // local "yyyy-MM-dd HH:mm"
+    public static string DateClock(DateTimeOffset t) =>
+        t.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 }

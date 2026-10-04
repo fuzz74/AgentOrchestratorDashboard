@@ -94,8 +94,8 @@ public sealed class OverviewPageTests
 
         Assert.Contains("beta · Worker · #1 · claude-sonnet-4-5 · 3 tool calls", frame, StringComparison.Ordinal);
         var block = RowOf(host, "beta · Worker · #1");
-        Assert.Contains("Let me read the alpha parser first.", lines[block + 1], StringComparison.Ordinal);
-        Assert.Contains("Bash dotnet build src/Beta", lines[block + 5], StringComparison.Ordinal);
+        Assert.Contains("Let me read the alpha parser first.", lines[block + 2], StringComparison.Ordinal);
+        Assert.Contains("Bash dotnet build src/Beta", lines[block + 6], StringComparison.Ordinal);
         Assert.DoesNotContain("Beta builds on the alpha parser", frame, StringComparison.Ordinal);
 
         var log = RowOf(host, "12:00:00 Run started: 5 tasks, max 2 in parallel");
@@ -103,6 +103,19 @@ public sealed class OverviewPageTests
         Assert.Contains("12:20:00 [gamma] FAILED after 3 attempts: acceptance failed", lines[log + 2], StringComparison.Ordinal);
         Assert.DoesNotContain("merged as", frame, StringComparison.Ordinal);
         host.SaveSvg("overview");
+    }
+
+    [Fact]
+    public void The_running_block_shows_the_context_size_below_its_header()
+    {
+        using var host = UiTestHost.Start(Pages(), SampleRun.CreateEnriched());
+        var lines = Lines(host);
+
+        var block = RowOf(host, "beta · Worker · #1 · claude-sonnet-4-5 · 3 tool calls");
+        Assert.Contains("  context 34.5k of 200.0k (17 %)", lines[block + 1], StringComparison.Ordinal);
+        Assert.Contains("Let me read the alpha parser first.", lines[block + 2], StringComparison.Ordinal);
+        Assert.Contains("Bash dotnet build src/Beta", lines[block + 6], StringComparison.Ordinal);
+        host.SaveSvg("overview-context");
     }
 
     [Fact]

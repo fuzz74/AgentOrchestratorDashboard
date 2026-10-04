@@ -17,4 +17,10 @@ public static class FixturePaths
 
     /// <summary>The <c>.orchestrator</c> folder of the Copilot run.</summary>
     public static string CopilotRunDir { get; } = Path.Combine(CopilotRepo, ".orchestrator");
+
+    /// <summary>Copy of Claude Code's <c>.claude</c> folder for the Claude run (holds <c>projects</c>).</summary>
+    public static string ClaudeStore { get; } = Path.Combine(Root, "stores", "claude");
+
+    /// <summary>Copy of Copilot's <c>.copilot</c> folder for the Copilot run (holds <c>session-state</c> and <c>session-store.db</c>).</summary>
+    public static string CopilotStore { get; } = Path.Combine(Root, "stores", "copilot");
 }

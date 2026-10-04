@@ -7,9 +7,11 @@ using Xunit;
 namespace OrchDash.Tests.App;
 
 // Spec 1.1-1.5: the start path, the exit codes and stderr, with a fake runUi or the real UI on the in-memory terminal.
+// A fixture run gets the fixture store folders, any other repo empty temp store folders.
 public sealed class AppRunnerTests : IDisposable
 {
     private readonly TempFolder _temp = new();
+    private readonly TempFolder _stores = new();
     private readonly StringWriter _stderr = new();
     private int _uiRuns;
 
@@ -17,14 +19,23 @@ public sealed class AppRunnerTests : IDisposable
     {
         _stderr.Dispose();
         _temp.Dispose();
+        _stores.Dispose();
     }
 
+    /// <summary>Runs the app with empty temp store folders.</summary>
     private int Run(string[] args, string currentDirectory, Action<Visual, Func<TerminalLoopResult>> runUi) =>
+        Run(args, currentDirectory, runUi, _stores.Folder("claude"), _stores.Folder("copilot"));
+
+    /// <summary>Runs the app with the fixture store folders.</summary>
+    private int RunFixture(string[] args, string currentDirectory, Action<Visual, Func<TerminalLoopResult>> runUi) =>
+        Run(args, currentDirectory, runUi, FixtureRuns.ClaudeStore, FixtureRuns.CopilotStore);
+
+    private int Run(string[] args, string currentDirectory, Action<Visual, Func<TerminalLoopResult>> runUi, string claudeDir, string copilotDir) =>
         AppRunner.Run(args, currentDirectory, _stderr, (root, onUpdate) =>
         {
             _uiRuns++;
             runUi(root, onUpdate);
-        });
+        }, claudeDir, copilotDir);
 
     /// <summary>A runUi that ticks once, as Terminal.Run does before its first frame, and then returns.</summary>
     private static void TickOnce(Visual root, Func<TerminalLoopResult> onUpdate)
@@ -71,7 +82,7 @@ public sealed class AppRunnerTests : IDisposable
     [Fact]
     public void Without_an_argument_a_repo_above_the_current_directory_is_used()
     {
-        var code = Run([], Path.Combine(FixtureRuns.ClaudeRepo, ".orchestrator", "logs"), TickOnce);
+        var code = RunFixture([], Path.Combine(FixtureRuns.ClaudeRepo, ".orchestrator", "logs"), TickOnce);
 
         Assert.Equal(0, code);
         Assert.Equal(1, _uiRuns);
@@ -108,7 +119,7 @@ public sealed class AppRunnerTests : IDisposable
         string? frame = null;
         var exited = false;
 
-        var code = Run([Path.Combine("..", "claude-run")], FixtureRuns.CopilotRepo, (root, onUpdate) =>
+        var code = RunFixture([Path.Combine("..", "claude-run")], FixtureRuns.CopilotRepo, (root, onUpdate) =>
         {
             using var harness = TerminalHarness.Start(root, onUpdate);
             frame = harness.Frame();
@@ -131,7 +142,7 @@ public sealed class AppRunnerTests : IDisposable
     {
         var exited = false;
 
-        var code = Run([FixtureRuns.CopilotRepo], _temp.Path, (root, onUpdate) =>
+        var code = RunFixture([FixtureRuns.CopilotRepo], _temp.Path, (root, onUpdate) =>
         {
             using var harness = TerminalHarness.Start(root, onUpdate);
             Assert.StartsWith("copilot-run  Finished", harness.Frame(), StringComparison.Ordinal);

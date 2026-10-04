@@ -151,9 +151,9 @@ public static class OverviewText
     public static IReadOnlyList<Session> RunningSessions(RunSnapshot s) =>
         [.. s.Sessions.Where(x => x.State == SessionState.Running)];
 
-    // 7.5, 7.6: a header line (warning colour when the last event is more than 5 minutes old),
-    // then the last 5 items, one line each.
-    public static IReadOnlyList<string> RunningBlock(Session session, DateTimeOffset now)
+    // 7.5, 7.6, 17.1: a header line (warning colour when the last event is more than 5 minutes old), the context size
+    // of the latest call with usage (no line without one), then the last 5 items, one line each.
+    public static IReadOnlyList<string> RunningBlock(Session session, RunSnapshot snapshot, DateTimeOffset now)
     {
         var files = session.Files;
         var content = session.Content;
@@ -171,6 +171,8 @@ public static class OverviewText
             : string.Join(Separator, Look.Tag("", name), Look.Tag(Look.Color(files.Role), role), Look.Tag("", rest));
 
         var lines = new List<string> { header };
+        if (content.Calls.LastOrDefault(c => c.Usage is not null)?.Usage is { } usage)
+            lines.Add(ItemIndent + "context " + Look.ContextSize(usage.Context, ContextLimit.For(snapshot, session)));
         var items = content.Items;
         for (var i = Math.Max(0, items.Length - RunningItemCount); i < items.Length; i++)
             lines.Add(ItemIndent + ItemLine(items[i]));
