@@ -1,3 +1,4 @@
+using System.Globalization;
 using OrchDash.Core.Claude;
 using OrchDash.Core.Model;
 
@@ -40,6 +41,18 @@ internal static class ClaudeLines
 
     public static string ToolResultBlock(string toolUseId, string content, bool isError = false) =>
         $$"""{"tool_use_id":"{{toolUseId}}","type":"tool_result","content":{{content}},"is_error":{{(isError ? "true" : "false")}}}""";
+
+    /// <summary>A rate_limit_event line (it has no timestamp); <paramref name="info"/> is the JSON value of rate_limit_info.</summary>
+    public static string RateLimitEvent(string info, string sessionId = SessionId) =>
+        $$"""{"type":"rate_limit_event","rate_limit_info":{{info}},"uuid":"575efe0a","session_id":"{{sessionId}}"}""";
+
+    /// <summary>The rate_limit_info of the spec 4.3 example with the given utilizations.</summary>
+    public static string RateLimitInfo(double fiveHour = 0.2, double sevenDay = 0.27) =>
+        """{"status":"allowed","rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":""" +
+        fiveHour.ToString(CultureInfo.InvariantCulture) +
+        ""","resetsAt":1790848200},"seven_day":{"utilization":""" +
+        sevenDay.ToString(CultureInfo.InvariantCulture) +
+        ""","resetsAt":1790956800}}}""";
 
     public static SessionContent ParseIn(string? workDir, params string[] lines)
     {

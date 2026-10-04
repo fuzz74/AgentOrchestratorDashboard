@@ -1,3 +1,4 @@
+using System.Text.Json;
 using OrchDash.Core.Claude;
 using OrchDash.Core.Model;
 using OrchDash.Core.Tests.Fixtures;
@@ -20,6 +21,12 @@ public sealed class ClaudeFixtureTests
         foreach (var line in ReadLines(relativePath))
             parser.AddLine(line);
         return parser.Build();
+    }
+
+    private static string? LineType(string line)
+    {
+        using var document = JsonDocument.Parse(line);
+        return document.RootElement.TryGetProperty("type", out var type) ? type.GetString() : null;
     }
 
     [Fact]
@@ -77,6 +84,63 @@ public sealed class ClaudeFixtureTests
         Assert.NotNull(content.Result);
         Assert.NotEmpty(content.Calls);
         Assert.NotEmpty(content.Items);
+    }
+
+    [Theory]
+    [InlineData(BootstrapLog, 0.15, 0.26)]
+    [InlineData(WorkerLog, 0.2, 0.27)]
+    [InlineData(ReviewLog, 0.21, 0.27)]
+    public void Every_log_has_an_allowed_rate_limit(string relativePath, double fiveHour, double sevenDay)
+    {
+        var content = ParseFile(relativePath);
+
+        var rateLimit = Assert.IsType<RateLimit>(content.RateLimit);
+        Assert.Equal("allowed", rateLimit.Status);
+        Assert.Equal("five_hour", rateLimit.LimitType);
+        Assert.Equal(fiveHour, rateLimit.FiveHourUsed);
+        Assert.Equal(sevenDay, rateLimit.SevenDayUsed);
+        Assert.NotNull(rateLimit.SeenAt);
+        Assert.InRange(rateLimit.SeenAt.Value, content.FirstEventAt!.Value, content.LastEventAt!.Value);
+    }
+
+    [Fact]
+    public void Worker_rate_limit_has_its_reset_times()
+    {
+        var rateLimit = ParseFile(WorkerLog).RateLimit;
+
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1790848200), rateLimit?.FiveHourResetsAt);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1790956800), rateLimit?.SevenDayResetsAt);
+    }
+
+    /// <summary>Spec 10.4: without its rate_limit_event lines a log gives the content it gave before 10.1.</summary>
+    [Theory]
+    [InlineData(WorkerLog)]
+    [InlineData(ReviewLog)]
+    [InlineData(BootstrapLog)]
+    public void Without_rate_limit_lines_the_content_is_the_same_and_has_no_rate_limit(string relativePath)
+    {
+        var lines = ReadLines(relativePath);
+        var without = lines.Where(line => LineType(line) != "rate_limit_event").ToArray();
+        Assert.NotEqual(lines.Length, without.Length);
+
+        var whole = ParseFile(relativePath);
+        var parser = new ClaudeSessionParser(null);
+        foreach (var line in without)
+            parser.AddLine(line);
+        var content = parser.Build();
+
+        Assert.Equal(whole.Calls, content.Calls);
+        Assert.Equal(whole.Items, content.Items);
+        Assert.Equal(whole.Result, content.Result);
+        Assert.Equal(whole.Model, content.Model);
+        Assert.Equal(whole.SessionId, content.SessionId);
+        Assert.Equivalent(whole.Init, content.Init, strict: true);
+        Assert.Equal(whole.FirstEventAt, content.FirstEventAt);
+        Assert.Equal(whole.LastEventAt, content.LastEventAt);
+        Assert.Equal(whole.UnparsedLines, content.UnparsedLines);
+        Assert.Null(content.RateLimit);
+        Assert.Null(content.SentPrompt);
+        Assert.Null(content.Checkpoint);
     }
 
     [Theory]

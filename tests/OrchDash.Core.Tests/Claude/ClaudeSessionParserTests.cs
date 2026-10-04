@@ -279,7 +279,7 @@ public sealed class ClaudeSessionParserTests
     }
 
     [Theory]
-    [InlineData("""{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"other"}""")]
+    [InlineData("""{"type":"stream_event","event":{"type":"ping"},"session_id":"other"}""")]
     [InlineData("""{"type":"system","subtype":"session_title_changed","title":"orch","session_id":"other"}""")]
     [InlineData("""{"type":"system","subtype":"task_started","task_id":"b1","session_id":"other","timestamp":"2026-10-01T08:46:43.772Z"}""")]
     [InlineData("""{"session_id":"other"}""")]
