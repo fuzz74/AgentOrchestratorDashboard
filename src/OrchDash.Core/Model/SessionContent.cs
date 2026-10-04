@@ -11,4 +11,8 @@ public sealed record SessionContent(
         null, null, null,
         ImmutableArray<ModelCall>.Empty, ImmutableArray<ConversationItem>.Empty, null,
         null, null, 0);
+
+    public string? SentPrompt { get; init; }             // Copilot: the prompt as sent
+    public ContextCheckpoint? Checkpoint { get; init; }  // Copilot
+    public RateLimit? RateLimit { get; init; }           // Claude
 }
