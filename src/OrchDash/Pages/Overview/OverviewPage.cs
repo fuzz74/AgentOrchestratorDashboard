@@ -134,7 +134,7 @@ public sealed class OverviewPage : IPage
         "running",
         () => OverviewText.RunningSessions(context.Snapshot.Value),
         (session, _) => session.Files.Key,
-        session => new Markup(() => string.Join('\n', OverviewText.RunningBlock(session, context.Now.Value))).IsSelectable(false),
+        session => new Markup(() => string.Join('\n', OverviewText.RunningBlock(session, context.Snapshot.Value, context.Now.Value))).IsSelectable(false),
         session =>
         {
             context.SelectedSessionKey.Value = session.Files.Key;

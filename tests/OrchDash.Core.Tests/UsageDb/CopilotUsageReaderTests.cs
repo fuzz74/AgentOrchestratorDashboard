@@ -96,6 +96,8 @@ public sealed class CopilotUsageReaderTests
     {
         using var database = new TempDatabase();
         database.Insert(SessionA, "2026-10-03T10:00:00.000Z", 100, 0, 0, 1);
+        // The second commit keeps the length, and in the same clock tick as the first it would keep the write time too.
+        File.SetLastWriteTimeUtc(database.DatabasePath, new DateTime(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc));
         var reader = new CopilotUsageReader(database.DatabasePath);
 
         var first = reader.Read([SessionA]);

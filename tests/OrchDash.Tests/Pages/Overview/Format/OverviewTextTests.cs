@@ -221,12 +221,13 @@ public sealed class OverviewTextTests
         Assert.Equal(
         [
             "beta · [cyan]Worker[/] · #1 · claude-sonnet-4-5 · 3 tool calls · 30s ago",
+            "  context 34.5k of 200.0k (17 %)",
             "  Let me read the alpha parser first.",
             "  Read src/Alpha/Parser.cs",
             "  Grep Parse\\( in src",
             "  Now I will write the checker and build it.",
             "  Bash dotnet build src/Beta",
-        ], OverviewText.RunningBlock(Session(SampleRun.BetaWorkerKey), _now));
+        ], OverviewText.RunningBlock(Session(SampleRun.BetaWorkerKey), _run, _now));
     }
 
     [Fact]
@@ -235,12 +236,13 @@ public sealed class OverviewTextTests
         Assert.Equal(
         [
             "alpha · [cyan]Worker[/] · #1 · claude-sonnet-4-5 · 2 tool calls · 10s ago",
+            "  context 43.3k of 200.0k (22 %)",
             "  I will replace the Parser stub in src/Alpha/Parser.cs.",
             "  Edit src/Alpha/Parser.cs",
             "  [muted]thinking (~1.2k tokens, no text)[/]",
             "  Bash dotnet test tests/Alpha",
             "  The parser is in place and all alpha tests pass.",
-        ], OverviewText.RunningBlock(Session(SampleRun.AlphaWorkerKey), SampleRun.At(12, 6, 0)));
+        ], OverviewText.RunningBlock(Session(SampleRun.AlphaWorkerKey), _run, SampleRun.At(12, 6, 0)));
     }
 
     [Fact]
@@ -250,10 +252,10 @@ public sealed class OverviewTextTests
 
         Assert.Equal(
             "beta · [cyan]Worker[/] · #1 · claude-sonnet-4-5 · 3 tool calls · 5m00s ago",
-            OverviewText.RunningBlock(beta, SampleRun.At(12, 34, 30))[0]);
+            OverviewText.RunningBlock(beta, _run, SampleRun.At(12, 34, 30))[0]);
         Assert.Equal(
             "[warning]beta · Worker · #1 · claude-sonnet-4-5 · 3 tool calls · 5m01s ago[/]",
-            OverviewText.RunningBlock(beta, SampleRun.At(12, 34, 31))[0]);
+            OverviewText.RunningBlock(beta, _run, SampleRun.At(12, 34, 31))[0]);
     }
 
     [Fact]
@@ -269,9 +271,59 @@ public sealed class OverviewTextTests
         Assert.Equal(
         [
             "Planner · [blue]Planner[/] · #1 · claude-sonnet-4-5 · 0 tool calls · -",
+            "  context 34.5k of 200.0k (17 %)",
             "  [muted]Beta builds on the alpha parser.[/]",
             "  Let me read the alpha parser first.",
-        ], OverviewText.RunningBlock(planner, _now));
+        ], OverviewText.RunningBlock(planner, _run, _now));
+    }
+
+    [Fact]
+    public void Running_block_takes_the_context_of_the_latest_call_with_usage()
+    {
+        var beta = Session(SampleRun.BetaWorkerKey);
+        var calls = beta.Content.Calls;
+        var session = beta with
+        {
+            Content = beta.Content with { Calls = calls.Add(new ModelCall("msg_03beta", "claude-sonnet-4-5", SampleRun.At(12, 25, 0), null)) },
+        };
+
+        Assert.Equal("  context 34.5k of 200.0k (17 %)", OverviewText.RunningBlock(session, _run, _now)[1]);
+    }
+
+    [Fact]
+    public void Running_block_has_no_context_line_without_a_call_with_usage()
+    {
+        var beta = Session(SampleRun.BetaWorkerKey);
+        var withoutUsage = beta with
+        {
+            Content = beta.Content with { Calls = [.. beta.Content.Calls.Select(c => c with { Usage = null })] },
+        };
+        var withoutCalls = beta with { Content = beta.Content with { Calls = [] } };
+
+        Assert.All([withoutUsage, withoutCalls], session =>
+        {
+            var lines = OverviewText.RunningBlock(session, _run, _now);
+            Assert.Equal(6, lines.Count);
+            Assert.Equal("  Let me read the alpha parser first.", lines[1]);
+        });
+    }
+
+    [Fact]
+    public void Running_block_without_a_context_limit_shows_the_context_alone()
+    {
+        var beta = Session(SampleRun.BetaWorkerKey);
+
+        Assert.Equal("  context 34.5k", OverviewText.RunningBlock(beta, _run with { Sessions = [beta] }, _now)[1]);
+    }
+
+    [Fact]
+    public void Running_block_uses_the_sessions_own_context_window()
+    {
+        var beta = Session(SampleRun.BetaWorkerKey);
+        var result = Session(SampleRun.AlphaWorkerKey).Content.Result! with { ContextWindow = 1_000_000 };
+        var session = beta with { Content = beta.Content with { Result = result } };
+
+        Assert.Equal("  context 34.5k of 1.0M (3 %)", OverviewText.RunningBlock(session, _run, _now)[1]);
     }
 
     [Theory]
@@ -322,8 +374,9 @@ public sealed class OverviewTextTests
         Assert.Equal(
         [
             "t[[x]] · [cyan]Worker[/] · #1 · m[[1]] · 0 tool calls · 30s ago",
+            "  context 34.5k",
             "  array[[0]] is [[red]]",
-        ], OverviewText.RunningBlock(session, _now));
+        ], OverviewText.RunningBlock(session, run, _now));
         Assert.Equal("12:00:00 [[x]] y", OverviewText.LogLine(new ProgressEntry(SampleRun.At(12, 0, 0), "x", "y", ProgressKind.Info)));
         Assert.Equal("[warning]12:00:00 [[a]] [[b]][/]",
             OverviewText.LogLine(new ProgressEntry(SampleRun.At(12, 0, 0), "a", "[b]", ProgressKind.Warning)));
