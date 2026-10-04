@@ -9,7 +9,7 @@ public sealed class CopilotFolderStore(string sessionStateDir) : ISessionStore, 
 {
     private static readonly TimeSpan MaxDistance = TimeSpan.FromSeconds(30);
 
-    private readonly Dictionary<string, CachedFile<StoreData>> _events = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, EventsFile> _events = new(StringComparer.Ordinal);
     private Dictionary<string, CachedFile<Workspace?>> _workspaces = new(StringComparer.Ordinal);
 
     // workDir is not used: the folder is found by the session id alone.
@@ -31,17 +31,12 @@ public sealed class CopilotFolderStore(string sessionStateDir) : ISessionStore, 
             return null;
         }
 
-        _events.TryGetValue(sessionId, out var cached);
-        if (cached is not null && cached.Stamp == stamp)
-            return cached.Value;
-
-        // The stamp is taken before the read, so a line written in between is read again next time.
-        if (SharedFile.TryReadAllBytes(path) is not { } bytes)
-            return cached?.Value;
-
-        var data = EventsFile.Map(bytes);
-        _events[sessionId] = new CachedFile<StoreData>(stamp, data);
-        return data;
+        if (!_events.TryGetValue(sessionId, out var events))
+        {
+            events = new EventsFile();
+            _events[sessionId] = events;
+        }
+        return events.Read(path, stamp);
     }
 
     public string? Find(string name, string workDir, DateTimeOffset startedAt, IReadOnlySet<string> knownIds)

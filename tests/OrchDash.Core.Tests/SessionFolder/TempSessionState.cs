@@ -25,6 +25,12 @@ public sealed class TempSessionState : IDisposable
         File.WriteAllText(EventsPath(sessionId), text);
     }
 
+    public void WriteEventsBytes(string sessionId, byte[] bytes)
+    {
+        Directory.CreateDirectory(Path.Combine(Dir, sessionId));
+        File.WriteAllBytes(EventsPath(sessionId), bytes);
+    }
+
     public void AppendEvents(string sessionId, string text)
     {
         using var stream = new FileStream(EventsPath(sessionId), FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
@@ -47,7 +53,7 @@ public sealed class TempSessionState : IDisposable
         {
             Directory.Delete(_root, recursive: true);
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             // a file still in use; the temp folder is cleaned up by the OS
         }

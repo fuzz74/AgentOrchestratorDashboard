@@ -4,63 +4,113 @@ using OrchDash.Core.Model;
 
 namespace OrchDash.Core.SessionFolder;
 
-// Maps the lines of a session folder's events.jsonl by the session folder table (spec 4.3, 12.1, 12.2).
-internal static class EventsFile
+// Follows one session folder's events.jsonl and maps its lines by the session folder table (spec 4.3, 12.1, 12.2).
+// Reads only the bytes added since the last read, as SessionTracker does for the run's logs.
+internal sealed class EventsFile
 {
+    private const FileShare ShareAll = FileShare.ReadWrite | FileShare.Delete;
+
+    private FileStamp _stamp;
+    private long _offset;                // byte offset after the last complete line
+    private string? _cliVersion;
+    private ImmutableArray<string> _systemPrompt = [];
+    private int _unparsed;
+    private StoreData? _data;
+
     private static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
 
-    public static StoreData Map(byte[] bytes)
+    // The data for the file with this stamp; the last result (null before the first) when it cannot be read.
+    public StoreData? Read(string path, FileStamp stamp)
     {
-        string? cliVersion = null;
-        var systemPrompt = ImmutableArray<string>.Empty;
-        int unparsed = 0;
+        if (_data is not null && stamp == _stamp)
+            return _data;
 
-        // Each line ends with '\n'; the bytes after the last '\n' are not complete yet and are not read.
-        int consumed = 0;
-        int newline;
-        while ((newline = bytes.AsSpan(consumed).IndexOf((byte)'\n')) >= 0)
+        byte[] bytes;
+        int count = 0;
+        try
         {
-            int start = consumed;
-            int length = newline;
-            consumed += newline + 1;
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, ShareAll);
+            long length = RandomAccess.GetLength(handle);
+            if (length < _offset)
+                Reset();
 
-            if (start == 0 && bytes.AsSpan(0, length).StartsWith(Utf8Bom))
-            {
-                start += Utf8Bom.Length;
-                length -= Utf8Bom.Length;
-            }
-            if (length > 0 && bytes[start + length - 1] == (byte)'\r')
-                length--;
-
-            try
-            {
-                using var document = JsonDocument.Parse(bytes.AsMemory(start, length));
-                var root = document.RootElement;
-                if (root.ValueKind != JsonValueKind.Object)
-                {
-                    unparsed++;
-                    continue;
-                }
-                if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
-                    continue;
-
-                switch (String(root, "type"))
-                {
-                    case "session.start":
-                        cliVersion = String(data, "copilotVersion") ?? cliVersion;
-                        break;
-                    case "system.message":
-                        systemPrompt = SystemPrompt(data);
-                        break;
-                }
-            }
-            catch (JsonException)
-            {
-                unparsed++;
-            }
+            bytes = new byte[(int)Math.Min(length - _offset, Array.MaxLength)];
+            int read;
+            while (count < bytes.Length && (read = RandomAccess.Read(handle, bytes.AsSpan(count), _offset + count)) > 0)
+                count += read;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return _data;
         }
 
-        return StoreData.Empty with { CliVersion = cliVersion, SystemPrompt = systemPrompt, UnparsedLines = unparsed };
+        // The stamp is taken before the read, so bytes written in between are read again next time.
+        _stamp = stamp;
+        if (AddLines(bytes.AsMemory(0, count)) || _data is null)
+            _data = StoreData.Empty with { CliVersion = _cliVersion, SystemPrompt = _systemPrompt, UnparsedLines = _unparsed };
+        return _data;
+    }
+
+    // The file is shorter than what was read: it was replaced, so it is read again from byte 0.
+    private void Reset()
+    {
+        _offset = 0;
+        _cliVersion = null;
+        _systemPrompt = [];
+        _unparsed = 0;
+    }
+
+    // Maps each line ended by '\n'; the bytes after the last '\n' are not complete yet and are read again later.
+    // True when at least one line was mapped.
+    private bool AddLines(ReadOnlyMemory<byte> bytes)
+    {
+        bool added = false;
+        int consumed = 0;
+        int newline;
+        while ((newline = bytes.Span[consumed..].IndexOf((byte)'\n')) >= 0)
+        {
+            var line = bytes.Slice(consumed, newline);
+            if (_offset == 0 && consumed == 0 && line.Span.StartsWith(Utf8Bom))
+                line = line[Utf8Bom.Length..];
+            if (line.Span.EndsWith((byte)'\r'))
+                line = line[..^1];
+
+            AddLine(line);
+            consumed += newline + 1;
+            added = true;
+        }
+        _offset += consumed;
+        return added;
+    }
+
+    private void AddLine(ReadOnlyMemory<byte> line)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                _unparsed++;
+                return;
+            }
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                return;
+
+            switch (String(root, "type"))
+            {
+                case "session.start":
+                    _cliVersion = String(data, "copilotVersion") ?? _cliVersion;
+                    break;
+                case "system.message":
+                    _systemPrompt = SystemPrompt(data);
+                    break;
+            }
+        }
+        catch (JsonException)
+        {
+            _unparsed++;
+        }
     }
 
     // The content of each entry of data.contentBlocks[], or [data.content] when there are no blocks.
@@ -81,6 +131,19 @@ internal static class EventsFile
         return String(data, "content") is { } content ? [content] : [];
     }
 
-    private static string? String(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    // Null when the property is missing, not a string, or cannot be decoded (an unpaired surrogate or bytes
+    // that are not UTF-8 make GetString throw).
+    private static string? String(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+            return null;
+        try
+        {
+            return value.GetString();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
 }

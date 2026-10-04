@@ -1,3 +1,4 @@
+using System.Text;
 using OrchDash.Core.SessionFolder;
 using Xunit;
 
@@ -212,6 +213,95 @@ public sealed class CopilotFolderReadTests : IDisposable
         using var locked = new FileStream(_temp.EventsPath(Id), FileMode.Open, FileAccess.Read, FileShare.None);
 
         Assert.Null(store.Read(Id, null));
+    }
+
+    [Fact]
+    public void A_line_completed_by_a_later_append_is_read()
+    {
+        _temp.WriteEvents(Id, Lines(Start) + WithBlocks[..30]);
+        var store = new CopilotFolderStore(_temp.Dir);
+        var first = store.Read(Id, null);
+        Assert.Empty(first!.SystemPrompt);
+
+        _temp.AppendEvents(Id, WithBlocks[30..] + "\n");
+        var second = store.Read(Id, null);
+
+        Assert.Equal("1.0.91", second!.CliVersion);
+        Assert.Equal(["first", "second"], second.SystemPrompt);
+        Assert.Equal(0, second.UnparsedLines);
+    }
+
+    [Fact]
+    public void Appended_lines_add_to_what_was_read_before()
+    {
+        _temp.WriteEvents(Id, Lines(Start, "not json"));
+        var store = new CopilotFolderStore(_temp.Dir);
+        Assert.Equal(1, store.Read(Id, null)!.UnparsedLines);
+
+        _temp.AppendEvents(Id, Lines("also not json", WithoutBlocks));
+        var data = store.Read(Id, null);
+
+        Assert.Equal("1.0.91", data!.CliVersion);
+        Assert.Equal(["only content"], data.SystemPrompt);
+        Assert.Equal(2, data.UnparsedLines);
+    }
+
+    [Fact]
+    public void A_file_replaced_by_a_shorter_one_is_read_from_the_start()
+    {
+        _temp.WriteEvents(Id, Lines(Start, WithBlocks, "not json"));
+        var store = new CopilotFolderStore(_temp.Dir);
+        Assert.Equal(1, store.Read(Id, null)!.UnparsedLines);
+
+        _temp.WriteEvents(Id, Lines(WithoutBlocks));
+        var data = store.Read(Id, null);
+
+        Assert.Null(data!.CliVersion);
+        Assert.Equal(["only content"], data.SystemPrompt);
+        Assert.Equal(0, data.UnparsedLines);
+    }
+
+    [Fact]
+    public void A_string_with_an_unpaired_surrogate_is_read_without_an_exception()
+    {
+        _temp.WriteEvents(Id, Lines(
+            """{"type":"session.start","data":{"copilotVersion":"\ud800"},"id":"1","timestamp":"t","parentId":null}""",
+            """{"type":"system.message","data":{"content":"whole","contentBlocks":[{"content":"\ud800"},{"content":"kept"}]},"id":"2","timestamp":"t","parentId":"1"}""",
+            """{"type":"system.message","data":{"content":"\udc00x"},"id":"3","timestamp":"t","parentId":"2"}""",
+            WithBlocks.Replace("\"first\"", "\"\\ud800\"")));
+
+        var data = new CopilotFolderStore(_temp.Dir).Read(Id, null);
+
+        Assert.NotNull(data);
+        Assert.Null(data.CliVersion);
+        Assert.Equal(["second"], data.SystemPrompt);
+    }
+
+    [Fact]
+    public void A_content_with_an_unpaired_surrogate_gives_no_block()
+    {
+        _temp.WriteEvents(Id, Lines(Start, """{"type":"system.message","data":{"content":"\ud800"},"id":"2","timestamp":"t","parentId":"1"}"""));
+
+        var data = new CopilotFolderStore(_temp.Dir).Read(Id, null);
+
+        Assert.NotNull(data);
+        Assert.Equal("1.0.91", data.CliVersion);
+        Assert.Empty(data.SystemPrompt);
+    }
+
+    [Fact]
+    public void Bytes_that_are_not_utf8_do_not_throw()
+    {
+        var bytes = new List<byte>(Encoding.UTF8.GetBytes(Lines(Start)));
+        bytes.AddRange(Encoding.UTF8.GetBytes("""{"type":"system.message","data":{"content":"a"""));
+        bytes.AddRange([0xFF, 0xFE, 0xC3]);
+        bytes.AddRange(Encoding.UTF8.GetBytes("\"},\"id\":\"2\",\"timestamp\":\"t\",\"parentId\":\"1\"}\n"));
+        _temp.WriteEventsBytes(Id, [.. bytes]);
+
+        var data = new CopilotFolderStore(_temp.Dir).Read(Id, null);
+
+        Assert.NotNull(data);
+        Assert.Equal("1.0.91", data.CliVersion);
     }
 
     private static string Lines(params string[] lines) => string.Concat(lines.Select(line => line + "\n"));
