@@ -24,6 +24,21 @@ internal sealed class TempFolder : IDisposable
         return file;
     }
 
+    /// <summary>Copies the folder <paramref name="from"/> with everything below it to <paramref name="relative"/> below this one and returns its full path.</summary>
+    public string Copy(string from, string relative)
+    {
+        var to = Folder(relative);
+        foreach (var folder in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(System.IO.Path.Combine(to, System.IO.Path.GetRelativePath(from, folder)));
+        }
+        foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+        {
+            File.Copy(file, System.IO.Path.Combine(to, System.IO.Path.GetRelativePath(from, file)));
+        }
+        return to;
+    }
+
     public void Dispose()
     {
         try

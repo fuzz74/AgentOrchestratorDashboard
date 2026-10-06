@@ -96,8 +96,7 @@ public sealed class InsightWiringTests : IDisposable
     [Fact]
     public async Task The_real_sources_on_a_run_outside_any_work_tree_show_the_git_problem_without_an_exception()
     {
-        var copy = Path.Combine(_temp.Path, "claude-run");
-        CopyFolder(FixtureRuns.ClaudeRepo, copy);
+        var copy = _temp.Copy(FixtureRuns.ClaudeRepo, "claude-run");
 
         // Null sources: CreateInsightSources(), so real git, the WMI query and the command logs (28.2).
         using var store = AppRunner.CreateStore(copy, TimeSpan.FromMilliseconds(100), _temp.Folder("claude"), _temp.Folder("copilot"));
@@ -152,18 +151,5 @@ public sealed class InsightWiringTests : IDisposable
             await Task.Delay(50, TestContext.Current.CancellationToken);
         }
         Assert.True(condition(store.Current), $"not published within {Patience}; problems: {string.Join(" | ", store.Current.Problems)}");
-    }
-
-    private static void CopyFolder(string from, string to)
-    {
-        Directory.CreateDirectory(to);
-        foreach (var folder in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
-        {
-            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, folder)));
-        }
-        foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
-        {
-            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)));
-        }
     }
 }

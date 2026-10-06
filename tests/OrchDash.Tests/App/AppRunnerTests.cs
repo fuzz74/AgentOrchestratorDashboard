@@ -6,7 +6,7 @@ using Xunit;
 
 namespace OrchDash.Tests.App;
 
-// Spec 1.1-1.5: the start path, the exit codes and stderr, with a fake runUi or the real UI on the in-memory terminal.
+// Spec 1.1-1.5 and 34.4: the start path, including an archived run, the exit codes and stderr, with a fake runUi or the real UI on the in-memory terminal.
 // A fixture run gets the fixture store folders, any other repo empty temp store folders.
 public sealed class AppRunnerTests : IDisposable
 {
@@ -135,6 +135,26 @@ public sealed class AppRunnerTests : IDisposable
         Assert.Contains("Overview", frame, StringComparison.Ordinal);
         Assert.Contains("Conversation", frame, StringComparison.Ordinal);
         Assert.Equal(before, FixtureRuns.Listing(FixtureRuns.ClaudeRepo));
+    }
+
+    [Fact]
+    public void An_archived_run_as_the_start_argument_shows_the_repo_and_the_stamp_in_the_header()
+    {
+        // Spec 34.4: RepoLocator finds the archive folder itself, because it holds .orchestrator; Repo itself has none.
+        _temp.Folder("Repo");
+        var archive = _temp.Copy(Path.Combine(FixtureRuns.CopilotRepo, ".orchestrator"), Path.Combine("Repo.runs", "20261003-110000", ".orchestrator"));
+        string? frame = null;
+
+        var code = Run([Path.GetDirectoryName(archive)!], _temp.Path, (root, onUpdate) =>
+        {
+            using var harness = TerminalHarness.Start(root, onUpdate);
+            frame = harness.Frame();
+            harness.Type('q');
+        });
+
+        Assert.Equal(0, code);
+        Assert.Equal("", _stderr.ToString());
+        Assert.StartsWith("Repo · 20261003-110000  Finished", frame, StringComparison.Ordinal);
     }
 
     [Fact]
