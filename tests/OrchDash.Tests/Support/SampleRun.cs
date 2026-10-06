@@ -4,7 +4,7 @@ using OrchDash.Core.Model;
 namespace OrchDash.Tests.Support;
 
 // A running sample run for UI tests. Deterministic: every time is 2026-10-03 at a fixed local wall-clock time.
-public static class SampleRun
+public static partial class SampleRun
 {
     public const string RepoPath = @"C:\Work\SampleRepo";
     public const string LogsDir = @"C:\Work\SampleRepo\.orchestrator\logs\";
