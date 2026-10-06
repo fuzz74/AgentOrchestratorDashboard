@@ -276,7 +276,7 @@ internal sealed class ContextView
 
     /// <summary>
     /// 15.8: the stacked bar of the categories with tokens and one line per category; a click on a segment shows its
-    /// tip, the System prompt and Tool definitions lines open their pop-ups on a click.
+    /// tip, a click on a category line opens the explanation of the category (<see cref="CategoryHelp"/>).
     /// </summary>
     private Visual Breakdown()
     {
@@ -293,13 +293,9 @@ internal sealed class ContextView
         }
         foreach (var total in totals)
         {
-            var line = new Markup(ContextText.CategoryLine(total));
-            visuals.Add(total.Category switch
-            {
-                PartCategory.SystemPrompt => line.PointerPressed(OpenSystemPrompt),
-                PartCategory.ToolDefinitions => line.PointerPressed(OpenTools),
-                _ => line,
-            });
+            var category = total.Category;
+            visuals.Add(new Markup(ContextText.CategoryLine(total))
+                .PointerPressed(() => Show(CategoryHelp.Popup(category))));
         }
         return new VStack([.. visuals]);
     }

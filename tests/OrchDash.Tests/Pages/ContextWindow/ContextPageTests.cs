@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using OrchDash.Core.Model;
 using OrchDash.Pages.ContextWindow;
+using OrchDash.Pages.ContextWindow.Format;
 using OrchDash.Shell;
 using OrchDash.Tests.Host;
 using OrchDash.Tests.Support;
@@ -314,15 +315,40 @@ public sealed class ContextPageTests
     }
 
     [Fact]
-    public void A_click_on_the_system_prompt_line_opens_the_system_prompt()
+    public void S_without_a_transcript_shows_why_the_system_prompt_is_unavailable()
     {
         using var host = Start();
         host.ClickText(BetaRow[2..]);
 
-        ClickCategoryLine(host, "System prompt");
+        host.Type('s');
 
         AssertPopup(host, "System prompt", "Unavailable");
         Assert.Contains("unavailable: no transcript", PopupLines(host));
+    }
+
+    [Fact]
+    public void A_click_on_a_category_line_explains_the_category_and_Escape_closes_the_explanation()
+    {
+        using var host = Start();
+
+        ClickCategoryLine(host, "Injected");
+
+        AssertPopup(host, "Injected explained",
+            CategoryHelp.WhatItIs, CategoryHelp.HowItGetsIn, CategoryHelp.WhyItMatters, CategoryHelp.OnThisPage);
+        host.SaveSvg("context-category-help");
+        host.Press(TerminalKey.Escape);
+        Assert.DoesNotContain("[X]", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_click_on_the_system_prompt_line_explains_the_category_rather_than_opening_the_text()
+    {
+        using var host = Start();
+
+        ClickCategoryLine(host, "System prompt");
+
+        AssertPopup(host, "System prompt explained", CategoryHelp.WhatItIs, CategoryHelp.OnThisPage);
+        Assert.DoesNotContain("Block 1, 57 characters", PopupLines(host));
     }
 
     [Fact]
@@ -351,12 +377,12 @@ public sealed class ContextPageTests
     }
 
     [Fact]
-    public void A_click_on_the_tool_definitions_line_shows_the_checkpoint_tools()
+    public void T_on_a_copilot_session_shows_the_checkpoint_tools()
     {
         using var host = Start();
         host.Press(TerminalKey.Down);
 
-        ClickCategoryLine(host, "Tool definitions");
+        host.Type('t');
 
         AssertPopup(host, "Tool definitions", "Tools");
         var lines = PopupLines(host);

@@ -92,8 +92,9 @@ parts by their characters.
 | End (calls) or a click on the last call | Select the newest call and follow a running session's new calls again |
 | Enter or a click on a part | Open the part: its text, a tool definition's description and schema, a tool call's input and result |
 | A click on a segment of the make-up bar | Show the category's tokens and share in a tip; a mouse move, a key or a click elsewhere removes it |
-| `s` or a click on the `System prompt` line | Open the system prompt, one section per block |
-| `t` or a click on the `Tool definitions` line | Open the tool definitions: name, description and schema of each tool |
+| A click on a category line of the make-up | Explain the category: what it is, how it gets into the context, why it matters and how this page measures it |
+| `s` | Open the system prompt, one section per block |
+| `t` | Open the tool definitions: name, description and schema of each tool |
 
 **Usage page**: the run panel (sessions, calls, input, cache read, cache write, output, thinking, cost, premium
 requests, AIU and lines changed over the whole run), the latest rate limits, the CLI versions, the group table
