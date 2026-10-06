@@ -9,6 +9,10 @@ public sealed record RunSnapshot(
     ImmutableArray<ProgressEntry> Progress,  // file order
     ImmutableArray<string> Problems)
 {
+    public GitInfo Git { get; init; } = GitInfo.Empty;
+    public ProcessInfo Processes { get; init; } = ProcessInfo.Empty;
+    public ImmutableArray<CommandLog> Commands { get; init; } = [];   // newest first (22.1)
+
     // Version 0, phase NotStarted, empty arrays
     public static RunSnapshot Empty(string repoPath) => new(
         0, default, repoPath,
