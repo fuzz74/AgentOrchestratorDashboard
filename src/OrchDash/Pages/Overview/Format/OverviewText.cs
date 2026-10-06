@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using OrchDash.Contracts;
 using OrchDash.Core.Model;
+using OrchDash.Pages.Conversation.Format;
 
 namespace OrchDash.Pages.Overview.Format;
 
@@ -112,7 +114,7 @@ public static class OverviewText
         return (id, title, detail);
     }
 
-    // 7.4: Status, Plan, Prompt, Summary, Notes, Error, Feedback, Sessions; empty sections left out.
+    // 7.4, 27.2: Status, Plan, Prompt, Summary, Notes, Error, Feedback, Sessions, Processes; empty sections left out.
     public static IReadOnlyList<PopupSection> TaskPopup(TaskView t, RunSnapshot s)
     {
         var sections = new List<PopupSection>();
@@ -144,6 +146,15 @@ public static class OverviewText
             .Where(x => x.Files.TaskId == t.Id)
             .Select(x => string.Join(Separator,
                 x.Files.Role.ToString(), Attempt(x.Files), x.State.ToString(), Or(x.Content.Model)))));
+        AddIfText(sections, "Processes", string.Join('\n', s.Processes.Processes
+            .Where(p => p.TaskId == t.Id)
+            .Select(p => string.Join(Separator,
+                    "pid " + p.Pid.ToString(CultureInfo.InvariantCulture),
+                    p.Role is { } role ? Words.Role(role) : Missing,
+                    "started " + Time(p.StartedAt),
+                    "cpu " + Cpu(p.CpuShare),
+                    "mem " + Look.Bytes(p.WorkingSetBytes))
+                + "\n" + Or(p.CommandLine))));
         return sections;
     }
 
@@ -152,7 +163,8 @@ public static class OverviewText
         [.. s.Sessions.Where(x => x.State == SessionState.Running)];
 
     // 7.5, 7.6, 17.1: a header line (warning colour when the last event is more than 5 minutes old), the context size
-    // of the latest call with usage (no line without one), then the last 5 items, one line each.
+    // of the latest call with usage (no line without one), the process line (27.1; none while no sample was taken), then
+    // the last 5 items, one line each.
     public static IReadOnlyList<string> RunningBlock(Session session, RunSnapshot snapshot, DateTimeOffset now)
     {
         var files = session.Files;
@@ -173,6 +185,8 @@ public static class OverviewText
         var lines = new List<string> { header };
         if (content.Calls.LastOrDefault(c => c.Usage is not null)?.Usage is { } usage)
             lines.Add(ItemIndent + "context " + Look.ContextSize(usage.Context, ContextLimit.For(snapshot, session)));
+        if (snapshot.Processes.SampledAt is not null)
+            lines.Add(ItemIndent + ProcessLine(session, snapshot.Processes.Processes, now));
         var items = content.Items;
         for (var i = Math.Max(0, items.Length - RunningItemCount); i < items.Length; i++)
             lines.Add(ItemIndent + ItemLine(items[i]));
@@ -193,6 +207,25 @@ public static class OverviewText
             new[] { Look.Clock(e.Time), e.Source, e.Kind.ToString() }.OfType<string>());
         return [new PopupSection(heading, e.Message)];
     }
+
+    // 27.1: the figures of the process with the session's task id and role (the latest started of several, nulls last),
+    // or "no process" in the warning colour.
+    private static string ProcessLine(Session session, ImmutableArray<AgentProcess> processes, DateTimeOffset now)
+    {
+        var process = processes
+            .Where(p => p.TaskId == session.Files.TaskId && p.Role == session.Files.Role)
+            .OrderByDescending(p => p.StartedAt)
+            .FirstOrDefault();
+        if (process is null)
+            return Look.Tag("warning", "no process");
+        return Look.Tag("", string.Join(Separator,
+            "pid " + process.Pid.ToString(CultureInfo.InvariantCulture),
+            "up " + (process.StartedAt is { } started ? Look.Span(now - started) : Missing),
+            "cpu " + Cpu(process.CpuShare),
+            "mem " + Look.Bytes(process.WorkingSetBytes)));
+    }
+
+    private static string Cpu(double? share) => share is { } value ? Look.Percent(value) : Missing;
 
     private static string ItemLine(ConversationItem item) => item switch
     {
