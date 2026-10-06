@@ -298,11 +298,8 @@ public sealed class RunStore : IDisposable
             : SessionState.Aborted;
     }
 
-    // <repo>.worktrees/<TaskId> for task sessions, the repo path for bootstrap and planner.
-    private string WorkDir(SessionFiles files) =>
-        files.TaskId is { } taskId
-            ? Path.Combine(Path.TrimEndingDirectorySeparator(_repoPath) + ".worktrees", taskId)
-            : _repoPath;
+    // Spec 31.2: <RepoRoot>.worktrees\<TaskId> for task sessions, the repo root for bootstrap and planner.
+    private string WorkDir(SessionFiles files) => RunPaths.WorkDir(_repoPath, files.TaskId);
 
     private static ImmutableArray<T> OrEmpty<T>(ImmutableArray<T> items) => items.IsDefault ? [] : items;
 }
