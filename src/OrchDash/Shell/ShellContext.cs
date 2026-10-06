@@ -17,5 +17,5 @@ internal sealed class ShellContext(AppShell shell, RunSnapshot snapshot, DateTim
 
     public void ShowPopup(string title, IReadOnlyList<PopupSection> sections) => shell.ShowPopup(title, sections);
 
-    public void Replay(DateTimeOffset? at) { }
+    public void Replay(DateTimeOffset? at) => shell.Replay(at);
 }

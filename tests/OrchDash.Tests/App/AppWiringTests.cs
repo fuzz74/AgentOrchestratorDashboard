@@ -51,10 +51,10 @@ public sealed class AppWiringTests : IDisposable
         }, FixtureRuns.ClaudeStore, FixtureRuns.CopilotStore, FixtureRuns.CommandLogsOnly());
 
         Assert.Equal(0, code);
-        // Row 0 is the header, rows 1 to 3 are the tabs.
+        // Row 0 is the header, row 1 the time bar, rows 2 to 4 are the tabs.
         Assert.StartsWith(
             "│ Overview │ │ Conversation │ │ Context │ │ Usage │ │ Graph │ │ Git │ │ Commands │",
-            overview!.Split('\n')[2],
+            overview!.Split('\n')[3],
             StringComparison.Ordinal);
         Assert.DoesNotContain("Context per call", overview, StringComparison.Ordinal);
         Assert.Contains("Context per call", context, StringComparison.Ordinal);

@@ -13,23 +13,23 @@ public sealed class UiTestHost : IDisposable
     private readonly FixedTimeProvider _time;
     private RunSnapshot _snapshot;
 
-    private UiTestHost(IReadOnlyList<IPage> pages, RunSnapshot snapshot, int width, int height)
+    private UiTestHost(IReadOnlyList<IPage> pages, RunSnapshot snapshot, int width, int height, IRunHost? runs)
     {
         _snapshot = snapshot;
         _time = new FixedTimeProvider(snapshot.ReadAt);
-        var shell = new AppShell(pages, () => Volatile.Read(ref _snapshot), _time);
+        var shell = new AppShell(pages, () => Volatile.Read(ref _snapshot), _time, runs);
         _harness = TerminalHarness.Start(shell.Root, shell.OnUpdate, width, height);
     }
 
     /// <summary>True once the app has ended: <c>OnUpdate</c> returned Stop, or Ctrl+Q was pressed.</summary>
     public bool Exited => _harness.Exited;
 
-    /// <summary>Starts the shell with the pages and the snapshot and returns after its first frame.</summary>
-    public static UiTestHost Start(IReadOnlyList<IPage> pages, RunSnapshot snapshot, int width = 160, int height = 45)
+    /// <summary>Starts the shell with the pages, the snapshot and the run host, if any, and returns after its first frame.</summary>
+    public static UiTestHost Start(IReadOnlyList<IPage> pages, RunSnapshot snapshot, int width = 160, int height = 45, IRunHost? runs = null)
     {
         ArgumentNullException.ThrowIfNull(pages);
         ArgumentNullException.ThrowIfNull(snapshot);
-        return new UiTestHost(pages, snapshot, width, height);
+        return new UiTestHost(pages, snapshot, width, height, runs);
     }
 
     /// <summary>Makes the shell's <c>latest</c> return <paramref name="snapshot"/>, moves the clock to its <c>ReadAt</c> and waits for the next frame.</summary>
@@ -42,6 +42,12 @@ public sealed class UiTestHost : IDisposable
     }
 
     public void Press(TerminalKey key) => _harness.Press(key);
+
+    /// <summary>Presses a key with modifiers, for example <c>Press(TerminalKey.Left, TerminalModifiers.Shift)</c>.</summary>
+    public void Press(TerminalKey key, TerminalModifiers modifiers) => _harness.Press(key, modifiers);
+
+    /// <summary>Runs the shell's update again (it then reads the run host) and waits for the next frame.</summary>
+    public void Pump() => _harness.Pump();
 
     public void Type(char c) => _harness.Type(c);
 
