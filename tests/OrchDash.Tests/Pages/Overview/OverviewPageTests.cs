@@ -118,6 +118,62 @@ public sealed class OverviewPageTests
         host.SaveSvg("overview-context");
     }
 
+    private const string BetaProcessLine = "pid 4242 · up 20m00s · cpu 12 % · mem 367.0 MB";
+
+    [Fact]
+    public void The_running_block_shows_the_process_line_below_the_context_size()
+    {
+        using var host = UiTestHost.Start(Pages(), SampleRun.CreateInsight());
+        var lines = Lines(host);
+
+        var block = RowOf(host, "beta · Worker · #1 · claude-sonnet-4-5 · 3 tool calls");
+        Assert.Contains("  context 34.5k of 200.0k (17 %)", lines[block + 1], StringComparison.Ordinal);
+        Assert.Contains("  " + BetaProcessLine, lines[block + 2], StringComparison.Ordinal);
+        Assert.Contains("Let me read the alpha parser first.", lines[block + 3], StringComparison.Ordinal);
+        host.SaveSvg("overview-process");
+    }
+
+    [Fact]
+    public void Without_a_process_sample_the_running_block_has_no_process_line()
+    {
+        using var host = UiTestHost.Start(Pages(), SampleRun.CreateInsight() with { Processes = ProcessInfo.Empty });
+        var frame = host.Frame();
+
+        Assert.Contains("beta · Worker · #1", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("pid 4242", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("no process", frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_sample_without_the_sessions_process_shows_no_process()
+    {
+        var snapshot = SampleRun.CreateInsight();
+        snapshot = snapshot with { Processes = snapshot.Processes with { Processes = [] } };
+        using var host = UiTestHost.Start(Pages(), snapshot);
+
+        var block = RowOf(host, "beta · Worker · #1");
+        Assert.Contains("  no process", Lines(host)[block + 2], StringComparison.Ordinal);
+        Assert.DoesNotContain("pid 4242", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_task_popup_lists_the_tasks_processes()
+    {
+        using var host = UiTestHost.Start(Pages(), SampleRun.CreateInsight());
+
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Enter);
+
+        Assert.Contains("┌ beta - Beta checker ", PopupTitleRow(host), StringComparison.Ordinal);
+        var popup = PopupLines(host);
+        var sessions = popup.IndexOf("Sessions");
+        var heading = popup.IndexOf("Processes");
+        Assert.True(sessions >= 0 && heading > sessions, string.Join('\n', popup));
+        Assert.Equal("pid 4242 · worker · started 12:10:00 · cpu 12 % · mem 367.0 MB", popup[heading + 1]);
+        Assert.Equal("claude -p --output-format stream-json --verbose --name orch:beta", popup[heading + 2]);
+    }
+
     [Fact]
     public void Without_a_plan_the_task_table_says_No_plan_yet()
     {
