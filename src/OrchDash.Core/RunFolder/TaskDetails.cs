@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace OrchDash.Core.RunFolder;
 
 /// <summary>The texts of the task detail table and the owns-overlap rule (spec 2.4, 4.3).</summary>
-internal static partial class TaskDetails
+public static partial class TaskDetails
 {
     public const string Blocked = "a dependency failed";
     public const string Ready = "ready";
@@ -50,7 +50,7 @@ internal static partial class TaskDetails
     }
 
     /// <summary>The step of a running task, from its latest start folder and the integration logs in the log root.</summary>
-    public static string Running(string taskId, LogsListing logs)
+    internal static string Running(string taskId, LogsListing logs)
     {
         if (!logs.TryGetLatestStartFolder(taskId, out var files) || files.Count == 0)
             return Starting;

@@ -103,6 +103,18 @@ public static class Look
         return (n / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M";
     }
 
+    // "950 B", "47.4 kB", "350.2 MB", "1.2 GB"; powers of 1,000, one decimal, GB at most
+    public static string Bytes(long n)
+    {
+        if (n < 1_000)
+            return n.ToString(CultureInfo.InvariantCulture) + " B";
+        if (n < 1_000_000)
+            return (n / 1e3).ToString("0.0", CultureInfo.InvariantCulture) + " kB";
+        if (n < 1_000_000_000)
+            return (n / 1e6).ToString("0.0", CultureInfo.InvariantCulture) + " MB";
+        return (n / 1e9).ToString("0.0", CultureInfo.InvariantCulture) + " GB";
+    }
+
     // 0.2 -> "20 %", 0.045 -> "5 %"; whole percent, midpoint away from zero
     public static string Percent(double fraction) =>
         Math.Round(fraction * 100, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture) + " %";

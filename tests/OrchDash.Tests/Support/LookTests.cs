@@ -107,6 +107,18 @@ public sealed class LookTests
     public void Tokens_formats(long value, string expected) => Assert.Equal(expected, Look.Tokens(value));
 
     [Theory]
+    [InlineData(0, "0 B")]
+    [InlineData(950, "950 B")]
+    [InlineData(999, "999 B")]
+    [InlineData(1_000, "1.0 kB")]
+    [InlineData(47_400, "47.4 kB")]
+    [InlineData(350_200_000, "350.2 MB")]
+    [InlineData(367_001_600, "367.0 MB")]
+    [InlineData(1_200_000_000, "1.2 GB")]
+    [InlineData(2_500_000_000_000, "2500.0 GB")]
+    public void Bytes_formats(long value, string expected) => Assert.Equal(expected, Look.Bytes(value));
+
+    [Theory]
     [InlineData(0.2, "20 %")]
     [InlineData(0.045, "5 %")]
     [InlineData(0, "0 %")]
@@ -155,6 +167,7 @@ public sealed class LookTests
 
             Assert.Equal("0.25 USD", Look.Usd(0.25));
             Assert.Equal("47.4k", Look.Tokens(47_400));
+            Assert.Equal("350.2 MB", Look.Bytes(350_200_000));
             Assert.Equal("3m07s", Look.Span(TimeSpan.FromSeconds(187)));
             Assert.Equal("5 %", Look.Percent(0.045));
             Assert.Equal("12.93 AIU", Look.Aiu(12_930_990_000));
