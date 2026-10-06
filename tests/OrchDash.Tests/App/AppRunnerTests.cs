@@ -35,7 +35,7 @@ public sealed class AppRunnerTests : IDisposable
         {
             _uiRuns++;
             runUi(root, onUpdate);
-        }, claudeDir, copilotDir);
+        }, claudeDir, copilotDir, FixtureRuns.CommandLogsOnly());
 
     /// <summary>A runUi that ticks once, as Terminal.Run does before its first frame, and then returns.</summary>
     private static void TickOnce(Visual root, Func<TerminalLoopResult> onUpdate)

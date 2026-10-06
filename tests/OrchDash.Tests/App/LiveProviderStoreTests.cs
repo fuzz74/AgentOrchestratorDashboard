@@ -138,7 +138,7 @@ public sealed class LiveProviderStoreTests : IDisposable
     }
 
     private RunStore CreateStore() =>
-        AppRunner.CreateStore(_repo.Path, claudeDir: _stores.Folder("claude"), copilotDir: _stores.Folder("copilot"));
+        AppRunner.CreateStore(_repo.Path, claudeDir: _stores.Folder("claude"), copilotDir: _stores.Folder("copilot"), sources: InsightSources.None);
 
     /// <summary>
     /// A running run of one task with one session whose log is <paramref name="log"/>; the run stays running while

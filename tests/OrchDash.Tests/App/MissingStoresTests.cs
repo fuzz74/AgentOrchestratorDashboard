@@ -81,7 +81,7 @@ public sealed class MissingStoresTests : IDisposable
             harness.Type('3');
             frame = harness.Frame();
             harness.Type('q');
-        }, claude, copilot);
+        }, claude, copilot, FixtureRuns.CommandLogsOnly());
 
         Assert.Equal(0, code);
         Assert.Equal("", stderr.ToString());

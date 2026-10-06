@@ -1,5 +1,6 @@
 using System.Globalization;
 using OrchDash.App;
+using OrchDash.Core.CommandLogs;
 using OrchDash.Core.Model;
 using OrchDash.Core.Store;
 
@@ -21,17 +22,29 @@ internal static class FixtureRuns
     /// <summary>The fixture's stand-in for <c>%USERPROFILE%\.copilot</c>.</summary>
     public static string CopilotStore { get; } = Path.Combine(Root, "stores", "copilot");
 
-    /// <summary>A store with the real reader, parsers and provider stores, on the fixture store folders.</summary>
-    public static RunStore CreateStore(string repo, TimeSpan? pollInterval = null) =>
-        AppRunner.CreateStore(repo, pollInterval, ClaudeStore, CopilotStore);
+    /// <summary>
+    /// The sources for tests on the fixtures: the command-log reader only. The fixtures lie inside this repo's work
+    /// tree, so a git reader would read this repo, and a process lister would see the agents running on this machine.
+    /// </summary>
+    public static InsightSources CommandLogsOnly() => new(null, null, new CommandLogReader());
+
+    /// <summary>
+    /// A store with the real reader, parsers and provider stores, on the fixture store folders, with
+    /// <paramref name="sources"/> or, when null, <see cref="CommandLogsOnly"/>.
+    /// </summary>
+    public static RunStore CreateStore(string repo, TimeSpan? pollInterval = null, InsightSources? sources = null) =>
+        AppRunner.CreateStore(repo, pollInterval, ClaudeStore, CopilotStore, sources ?? CommandLogsOnly());
 
     /// <summary>The snapshot of a first <c>Poll()</c> of a store on the fixture store folders.</summary>
-    public static RunSnapshot Poll(string repo) => Poll(repo, ClaudeStore, CopilotStore);
+    public static RunSnapshot Poll(string repo, InsightSources? sources = null) => Poll(repo, ClaudeStore, CopilotStore, sources);
 
-    /// <summary>The snapshot of a first <c>Poll()</c> of a store on <paramref name="claudeDir"/> and <paramref name="copilotDir"/>.</summary>
-    public static RunSnapshot Poll(string repo, string claudeDir, string copilotDir)
+    /// <summary>
+    /// The snapshot of a first <c>Poll()</c> of a store on <paramref name="claudeDir"/> and <paramref name="copilotDir"/>,
+    /// with <paramref name="sources"/> or, when null, <see cref="CommandLogsOnly"/>.
+    /// </summary>
+    public static RunSnapshot Poll(string repo, string claudeDir, string copilotDir, InsightSources? sources = null)
     {
-        using var store = AppRunner.CreateStore(repo, claudeDir: claudeDir, copilotDir: copilotDir);
+        using var store = AppRunner.CreateStore(repo, claudeDir: claudeDir, copilotDir: copilotDir, sources: sources ?? CommandLogsOnly());
         store.Poll();
         return store.Current;
     }

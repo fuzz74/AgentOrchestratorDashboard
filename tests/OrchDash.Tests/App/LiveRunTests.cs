@@ -34,7 +34,7 @@ public sealed class LiveRunTests : IDisposable
         _repo.Write($".orchestrator/logs/{WorkerKey}.prompt.md", "Build alpha.\n");
         var events = _repo.Write($".orchestrator/logs/{WorkerKey}.events.jsonl", string.Concat(lines[..5].Select(line => line + "\r\n")));
 
-        using var store = AppRunner.CreateStore(_repo.Path, claudeDir: _stores.Folder("claude"), copilotDir: _stores.Folder("copilot"));
+        using var store = AppRunner.CreateStore(_repo.Path, claudeDir: _stores.Folder("claude"), copilotDir: _stores.Folder("copilot"), sources: InsightSources.None);
         store.Start();
         Assert.Equal(TaskState.Running, Alpha(store.Current).Status);
         var session = Assert.Single(store.Current.Sessions);
