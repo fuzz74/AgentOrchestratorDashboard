@@ -3,10 +3,11 @@ using OrchDash.Core.Model;
 
 namespace OrchDash.Core.Store;
 
-// Compares snapshots by content, ignoring Version and ReadAt (spec 5.2). Record equality compares
-// immutable arrays and dictionaries by reference, so each record that holds one is compared as:
-// its arrays element by element, then the record itself with those arrays copied over from the other side.
-// A default array counts as empty.
+// Compares snapshots by content, ignoring Version and ReadAt (spec 5.2, 23.5); the ReadAt and SampledAt of
+// the git and process data are compared. Record equality compares immutable arrays and dictionaries by
+// reference, so each record that holds one is compared as: its arrays element by element, then the record
+// itself with those arrays copied over from the other side. Strings compare ordinally. A default array
+// counts as empty.
 internal static class SnapshotComparer
 {
     public static bool SameContent(RunSnapshot a, RunSnapshot b) =>
@@ -16,7 +17,10 @@ internal static class SnapshotComparer
         && SameItems(a.Tasks, b.Tasks, SameTask)
         && SameItems(a.Progress, b.Progress)
         && SameItems(a.Problems, b.Problems)
-        && SameItems(a.Sessions, b.Sessions, SameSession);
+        && SameItems(a.Sessions, b.Sessions, SameSession)
+        && SameGit(a.Git, b.Git)
+        && SameProcesses(a.Processes, b.Processes)
+        && SameCommands(a.Commands, b.Commands);
 
     private static bool SamePlan(PlanInfo? a, PlanInfo? b) =>
         ReferenceEquals(a, b)
@@ -80,6 +84,42 @@ internal static class SnapshotComparer
         || a is not null && b is not null
             && SameItems(a.Issues, b.Issues)
             && a == (b with { Issues = a.Issues });
+
+    // GitWorktree, GitBranch and GitCommit hold no arrays.
+    private static bool SameGit(GitInfo a, GitInfo b) =>
+        ReferenceEquals(a, b)
+        || SameItems(a.Worktrees, b.Worktrees)
+            && SameItems(a.Branches, b.Branches)
+            && SameItems(a.Tasks, b.Tasks, SameGitTask)
+            && a == (b with { Worktrees = a.Worktrees, Branches = a.Branches, Tasks = a.Tasks });
+
+    private static bool SameGitTask(GitTask a, GitTask b) =>
+        ReferenceEquals(a, b)
+        || SameItems(a.UncommittedFiles, b.UncommittedFiles)
+            && SameDiffStat(a.Uncommitted, b.Uncommitted)
+            && SameDiffStat(a.Committed, b.Committed)
+            && SameItems(a.Commits, b.Commits)
+            && SameItems(a.ArchiveBranches, b.ArchiveBranches)
+            && a == (b with
+            {
+                UncommittedFiles = a.UncommittedFiles, Uncommitted = a.Uncommitted, Committed = a.Committed,
+                Commits = a.Commits, ArchiveBranches = a.ArchiveBranches,
+            });
+
+    private static bool SameDiffStat(DiffStat? a, DiffStat? b) =>
+        ReferenceEquals(a, b)
+        || a is not null && b is not null
+            && SameItems(a.Files, b.Files);
+
+    // AgentProcess holds no arrays.
+    private static bool SameProcesses(ProcessInfo a, ProcessInfo b) =>
+        ReferenceEquals(a, b)
+        || SameItems(a.Processes, b.Processes)
+            && a == (b with { Processes = a.Processes });
+
+    // CommandLog holds no arrays.
+    private static bool SameCommands(ImmutableArray<CommandLog> a, ImmutableArray<CommandLog> b) =>
+        SameItems(a, b);
 
     private static bool SameItems<T>(ImmutableArray<T> a, ImmutableArray<T> b, Func<T, T, bool>? same = null)
     {
