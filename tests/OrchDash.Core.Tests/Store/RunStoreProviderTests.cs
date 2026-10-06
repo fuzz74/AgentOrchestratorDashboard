@@ -86,10 +86,10 @@ public sealed class RunStoreProviderTests : IDisposable
 
         store.Poll();
 
-        var repoPath = _repo.RepoPath + Path.DirectorySeparatorChar;
+        // Spec 31.2: RunPaths.WorkDir gives the repo path without the trailing separator.
         Assert.Equal(Path.Combine(_repo.RepoPath + ".worktrees", "alpha"), WorkDirOf(store, worker));
-        Assert.Equal(repoPath, WorkDirOf(store, bootstrap));
-        Assert.Equal(repoPath, WorkDirOf(store, planner));
+        Assert.Equal(_repo.RepoPath, WorkDirOf(store, bootstrap));
+        Assert.Equal(_repo.RepoPath, WorkDirOf(store, planner));
         Assert.Equal(3, _factory.Calls.Count);
     }
 
