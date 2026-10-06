@@ -158,8 +158,10 @@ public sealed class AppShell
     /// <summary>
     /// While no pop-up is open, keeps the keyboard focus inside the selected page. It remembers the focused element of
     /// each page. When the focus is outside the selected page (after a tab switch, or a click on a tab, which focuses the
-    /// tab control), it moves the focus back to that page's remembered element; for a page without one it clears the
-    /// focus, so that the library focuses the first visible focusable element, preferring one with AutoFocus.
+    /// tab control) or on the page's root itself (a click on a part of the page that takes no focus moves the focus up
+    /// to the root, a focusable splitter), it moves the focus back to that page's remembered element; for a page
+    /// without one it clears the focus, so that the library focuses the first visible focusable element, preferring one
+    /// with AutoFocus. A focus inside a window (a page's own pop-up) is left alone.
     /// </summary>
     private void KeepFocusOnPage()
     {
@@ -171,7 +173,11 @@ public sealed class AppShell
         }
         var index = _tabs.SelectedIndex;
         var focused = app.FocusedElement;
-        if (focused is not null && IsWithin(focused, page))
+        if (focused is not null && !IsWithin(focused, Root))
+        {
+            return;
+        }
+        if (focused is not null && focused != page && IsWithin(focused, page))
         {
             _pageFocus[index] = focused;
         }

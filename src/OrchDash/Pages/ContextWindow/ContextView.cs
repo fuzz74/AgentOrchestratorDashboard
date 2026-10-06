@@ -8,6 +8,7 @@ using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Commands;
 using XenoAtom.Terminal.UI.Controls;
+using XenoAtom.Terminal.UI.Geometry;
 using XenoAtom.Terminal.UI.Input;
 
 namespace OrchDash.Pages.ContextWindow;
@@ -274,8 +275,8 @@ internal sealed class ContextView
         SelectedCall() is var call and >= 0 ? $"Make-up at call {Words.Number(call + 1)}" : "Make-up";
 
     /// <summary>
-    /// 15.8: the stacked bar of the categories with tokens and one line per category; the System prompt and Tool
-    /// definitions lines open their pop-ups on a click.
+    /// 15.8: the stacked bar of the categories with tokens and one line per category; a click on a segment shows its
+    /// tip, the System prompt and Tool definitions lines open their pop-ups on a click.
     /// </summary>
     private Visual Breakdown()
     {
@@ -288,13 +289,7 @@ internal sealed class ContextView
         var segments = ContextText.CategorySegments(totals);
         if (!segments.IsEmpty)
         {
-            visuals.Add(new BreakdownChart(segments.Select(segment =>
-                    new BreakdownSegment(segment.Tokens, new Markup(Look.Tag(segment.Color, segment.Name)))
-                    {
-                        Color = Enum.Parse<ConsoleColor>(segment.Color, ignoreCase: true),
-                    }))
-                .ShowValues(false)
-                .ShowPercentages(false));
+            visuals.Add(Bar(totals, segments));
         }
         foreach (var total in totals)
         {
@@ -307,6 +302,47 @@ internal sealed class ContextView
             });
         }
         return new VStack([.. visuals]);
+    }
+
+    /// <summary>
+    /// The stacked bar; a click on a segment shows its tip at the pointer. Pointer moves never reach the bar: the
+    /// hover tooltip of XenoAtom.Terminal.UI 3.10.0 ends the app with "The visual is already part of the UI tree."
+    /// when the pointer crosses into the next segment.
+    /// </summary>
+    private static Visual Bar(ImmutableArray<CategoryTotal> totals, ImmutableArray<CategorySegment> segments)
+    {
+        var pressed = (X: 0, Y: 0);
+        return new BreakdownChart(segments.Select(segment =>
+                new BreakdownSegment(segment.Tokens, new Markup(Look.Tag(segment.Color, segment.Name)))
+                {
+                    Color = Enum.Parse<ConsoleColor>(segment.Color, ignoreCase: true),
+                }))
+            .ShowValues(false)
+            .ShowPercentages(false)
+            .PointerMoved((_, e) => e.Handled = true)
+            .PointerPressed((_, e) => pressed = (e.UiX, e.UiY))
+            .SegmentClicked((_, e) =>
+                ShowTip(totals.First(t => t.Category == segments[e.Index].Category), pressed.X, pressed.Y));
+    }
+
+    /// <summary>
+    /// Shows the tip of a category above the cell (<paramref name="x"/>, <paramref name="y"/>) until the mouse moves,
+    /// a key is pressed or the user clicks elsewhere.
+    /// </summary>
+    private static void ShowTip(CategoryTotal total, int x, int y)
+    {
+        var tip = new Popup { AnchorRect = new Rectangle(x, y, 1, 1) }
+            .Placement(PopupPlacement.Above)
+            .MatchAnchorWidth(false);
+        // The pop-up is modal, so keys only arrive while something in it has the focus.
+        var text = new ScrollViewer(new Markup(ContextText.CategoryTip(total)), focusable: true)
+            .KeyDown((_, e) =>
+            {
+                tip.Close();
+                e.Handled = true;
+            });
+        tip.Content(new Border(text)).PointerMoved((_, _) => tip.Close());
+        tip.Show();
     }
 
     private ImmutableArray<ContextPart> Parts() => PartsAndRows().Parts;

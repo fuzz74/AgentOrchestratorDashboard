@@ -91,6 +91,7 @@ parts by their characters.
 | Enter on a call, or a click | Select the call; Enter moves the focus to its parts |
 | End (calls) or a click on the last call | Select the newest call and follow a running session's new calls again |
 | Enter or a click on a part | Open the part: its text, a tool definition's description and schema, a tool call's input and result |
+| A click on a segment of the make-up bar | Show the category's tokens and share in a tip; a mouse move, a key or a click elsewhere removes it |
 | `s` or a click on the `System prompt` line | Open the system prompt, one section per block |
 | `t` or a click on the `Tool definitions` line | Open the tool definitions: name, description and schema of each tool |
 

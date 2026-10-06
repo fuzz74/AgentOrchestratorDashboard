@@ -429,6 +429,54 @@ public sealed class ContextPageTests
         Assert.StartsWith("System prompt     block 1", Rows(host, "Parts")[0], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Moving_the_mouse_across_the_make_up_bar_changes_nothing()
+    {
+        // No hover tip: XenoAtom.Terminal.UI 3.10.0 crashes when its tooltip moves from one segment of the bar to the
+        // next.
+        using var host = Start();
+        var before = host.Frame();
+        var (left, top, right) = MakeupPane(before);
+
+        host.Move(left + 2, top + 1);
+        host.Move(right - 3, top + 1);
+
+        Assert.Equal(before, host.Frame());
+    }
+
+    [Fact]
+    public void A_click_on_a_segment_of_the_make_up_bar_shows_its_tip_until_the_mouse_moves_or_a_key_is_pressed()
+    {
+        using var host = Start();
+        var before = host.Frame();
+        var (left, top, right) = MakeupPane(before);
+
+        host.Click(left + 2, top + 1);
+        Assert.Contains("3.3k tokens · 8 %", host.Frame(), StringComparison.Ordinal);
+        host.SaveSvg("context-bar-tip");
+        host.Move(left + 3, top + 1);
+        Assert.Equal(before, host.Frame());
+
+        host.Click(right - 3, top + 1);
+        Assert.Contains("20.1k tokens · 46 %", host.Frame(), StringComparison.Ordinal);
+        host.Press(TerminalKey.Down);
+        Assert.Equal(before, host.Frame());
+    }
+
+    [Fact]
+    public void A_click_on_a_part_of_the_page_that_takes_no_focus_keeps_the_keys_on_the_focused_list()
+    {
+        using var host = Start();
+        host.Press(TerminalKey.Tab);
+        Assert.StartsWith("call 2", Selected(host, "Calls"), StringComparison.Ordinal);
+        var (left, top, _) = MakeupPane(host.Frame());
+
+        host.Click(left + 2, top + 2);
+        host.Press(TerminalKey.Up);
+
+        Assert.StartsWith("call 1", Selected(host, "Calls"), StringComparison.Ordinal);
+    }
+
     /// <summary>The enriched sample run with <paramref name="count"/> calls added to the beta worker session.</summary>
     private static RunSnapshot WithBetaCalls(long version, int count)
     {
@@ -454,6 +502,18 @@ public sealed class ContextPageTests
             }
         }
         Assert.Fail($"No {category} line. Frame:\n{host.Frame()}");
+    }
+
+    /// <summary>
+    /// The cell columns of the left and right borders and the row of the top border of the make-up pane; the bar is
+    /// the row below the top border, with its first and last segments at its ends.
+    /// </summary>
+    private static (int Left, int Top, int Right) MakeupPane(string frame)
+    {
+        var (left, top) = PaneOrigin(frame, "Make-up at call 2");
+        var line = frame.Split('\n')[top];
+        var right = AnsiScreen.CellColumn(line, line.IndexOf('┐', line.IndexOf("┌ Make-up", StringComparison.Ordinal)));
+        return (left, top, right);
     }
 
     /// <summary>The cell column and row of the top left corner of the pane whose title starts with <paramref name="title"/>.</summary>

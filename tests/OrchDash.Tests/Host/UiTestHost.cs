@@ -50,6 +50,9 @@ public sealed class UiTestHost : IDisposable
 
     public void Click(int x, int y) => _harness.Click(x, y);
 
+    /// <summary>Moves the mouse to cell (<paramref name="x"/>, <paramref name="y"/>) with no button down.</summary>
+    public void Move(int x, int y) => _harness.Move(x, y);
+
     /// <summary>Turns the wheel by <paramref name="delta"/> notches; negative scrolls down, positive scrolls up.</summary>
     public void Wheel(int x, int y, int delta) => _harness.Wheel(x, y, delta);
 

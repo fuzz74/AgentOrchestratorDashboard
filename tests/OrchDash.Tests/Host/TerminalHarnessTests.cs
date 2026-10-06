@@ -89,6 +89,22 @@ public sealed class TerminalHarnessTests
     }
 
     [Fact]
+    public void Move_reaches_a_PointerMoved_handler()
+    {
+        var moves = new State<string>("no move");
+        var root = new VStack(
+            new TextBlock("header"),
+            new TextBlock("[target]").PointerMoved((_, e) => moves.Value = $"moved {e.X},{e.Y}"),
+            new TextBlock(() => moves.Value));
+
+        using var harness = TerminalHarness.Start(root, Continue, width: 60, height: 10);
+        Assert.Contains("no move", harness.Frame(), StringComparison.Ordinal);
+
+        harness.Move(3, 1);
+        Assert.Contains("moved 3,1", harness.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ClickText_throws_with_the_frame_when_the_text_is_absent()
     {
         using var harness = TerminalHarness.Start(new TextBlock("only this"), Continue, width: 40, height: 5);

@@ -193,6 +193,15 @@ public sealed class ContextTextTests
     }
 
     [Fact]
+    public void Category_tip_shows_the_category_its_tokens_and_its_share()
+    {
+        var totals = Makeup(SampleRun.AlphaReviewKey).TotalsAt(0);
+
+        Assert.Equal("[blue]System prompt[/]\n2.1k tokens · 15 %", ContextText.CategoryTip(totals[0]));
+        Assert.Equal("[green]Prompt[/]\n11.4k tokens · 81 %", ContextText.CategoryTip(totals[2]));
+    }
+
+    [Fact]
     public void Category_lines_with_other_and_at_a_call_without_usage()
     {
         var review = Get(SampleRun.AlphaReviewKey);

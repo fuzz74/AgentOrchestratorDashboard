@@ -133,6 +133,11 @@ public static class ContextText
         return string.Join(Gap, cells);
     }
 
+    // The tip of a segment of the stacked bar: the category in its colour, then its tokens and share on a second line.
+    public static string CategoryTip(CategoryTotal total) =>
+        Look.Tag(CategoryColor(total.Category), CategoryName(total.Category)) + "\n" +
+        Tokens(total.Tokens) + " tokens" + Dot + (total.Share is { } share ? Look.Percent(share) : Missing);
+
     // 15.8: the stacked bar's segments, in category order, for the categories with tokens above 0.
     public static ImmutableArray<CategorySegment> CategorySegments(ImmutableArray<CategoryTotal> totals) =>
     [

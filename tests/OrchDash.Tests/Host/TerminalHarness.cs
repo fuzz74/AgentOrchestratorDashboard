@@ -157,6 +157,10 @@ public sealed class TerminalHarness : IDisposable
         new TerminalMouseEvent { X = x, Y = y, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Down },
         new TerminalMouseEvent { X = x, Y = y, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Up });
 
+    /// <summary>Moves the mouse to cell (<paramref name="x"/>, <paramref name="y"/>), 0-based, with no button down.</summary>
+    public void Move(int x, int y) => Send(
+        new TerminalMouseEvent { X = x, Y = y, Button = TerminalMouseButton.None, Kind = TerminalMouseKind.Move });
+
     /// <summary>Turns the mouse wheel over cell (<paramref name="x"/>, <paramref name="y"/>) by <paramref name="delta"/> notches; negative scrolls down, positive scrolls up.</summary>
     public void Wheel(int x, int y, int delta)
     {
