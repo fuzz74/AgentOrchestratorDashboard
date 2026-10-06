@@ -16,4 +16,6 @@ internal sealed class ShellContext(AppShell shell, RunSnapshot snapshot, DateTim
     public void ShowPage(string pageId) => shell.ShowPage(pageId);
 
     public void ShowPopup(string title, IReadOnlyList<PopupSection> sections) => shell.ShowPopup(title, sections);
+
+    public void Replay(DateTimeOffset? at) { }
 }

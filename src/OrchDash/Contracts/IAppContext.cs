@@ -10,4 +10,5 @@ public interface IAppContext
     State<string?> SelectedSessionKey { get; }    // a SessionFiles.Key; shared by the pages
     void ShowPage(string pageId);
     void ShowPopup(string title, IReadOnlyList<PopupSection> sections);
+    void Replay(DateTimeOffset? at);   // set the replay time; null returns to live (32.7)
 }
