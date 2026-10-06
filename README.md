@@ -8,8 +8,13 @@ result. From the providers' own stores it adds what each agent's context window 
 page) and the tokens, cost, premium requests, AIU, rate limits and lines changed per call, session, task and run (Usage
 page). It draws the task graph by waves (Graph page), shows each task's git state: branch, worktree, commits and diff
 against the integration branch (Git page), the PID, uptime, CPU and memory of every running agent process (Overview
-page), and the output of every setup, acceptance and integration command (Commands page). It works for finished runs
-and live ones; changes show up within 2 seconds, process figures within 4 and git changes within 8.
+page), and the output of every setup, acceptance and integration command (Commands page). The Timeline page merges
+the events of all agents and of the orchestrator's own log into one list, one line per event. Eight pages in all.
+
+Replay shows the whole dashboard as the run was at a chosen time: the time bar under the header moves that time with
+the arrow keys or a click, and every page shows the run at it. The run picker (`r`) lists the repo's current run and its
+archived runs under `<repo>.runs` and switches the dashboard to one. It works for finished runs and live ones; changes
+show up within 2 seconds, process figures within 4 and git changes within 8.
 
 ## Usage
 
@@ -27,6 +32,10 @@ dotnet run --project src/OrchDash -- <repo>
 A relative path is resolved against the current directory. Without an argument the search starts at the current
 directory.
 
+`repo` may also be an archived run, `<repo>.runs\<stamp>`: that folder holds its own `.orchestrator`, so OrchDash opens
+it like any run. The header then shows `<repo> · <stamp>`, the sessions' work dirs are the task worktrees
+`<repo>.worktrees\<task>` (and `<repo>` for the bootstrap and the planner), and git reads `<repo>`.
+
 | Exit code | Meaning |
 | --- | --- |
 | 0 | The user quit (`q`, a click on `quit`, or Ctrl+Q). |
@@ -42,12 +51,20 @@ the wheel scrolls.
 
 | Key | Action |
 | --- | --- |
-| `1` to `7` or a click on a tab | Show the Overview, Conversation, Context, Usage, Graph, Git or Commands page |
+| `1` to `8` or a click on a tab | Show the Overview, Conversation, Context, Usage, Graph, Git, Commands or Timeline page |
+| Left | Step back: replay at the previous event's time |
+| Right | Step forward: replay at the next event's time, or return to live after the last one |
+| Shift+Left, Shift+Right | Replay one minute earlier or later (Shift+Right returns to live at the end) |
+| A click on a cell of the time bar | Replay at that cell's time; the last cell returns to live |
+| Escape (while replaying) or a click on the bar's state text | `Live`: return to live |
+| `r` or a click on the header's run text | Open the `Runs` dialog |
 | `p` or a click on `<n> problems` | Open the Problems pop-up (one line per problem found while reading) |
 | `q` or a click on `quit` | Quit |
 | Ctrl+Q | Quit, also while a pop-up is open |
 
-The command bar on the last row lists the keys that work where the focus is.
+The command bar on the last row lists the keys that work where the focus is: Left as `Step`, Escape as `Live` while
+replaying and `r` as `Runs`; Right, Shift+Left and Shift+Right have no entry. Left, Right and Escape act on the time
+only while no pop-up or dialog is open; Escape closes an open one first.
 
 **Pop-ups** (modal, 90 % of the screen)
 
@@ -160,6 +177,61 @@ outcome with its exit code, the log's path under `logs/` and its size, then its 
 | Enter or a click on the selected log | Open `<kind> <task> #<attempt>` with the command, outcome, output and stderr |
 | End (output) | Jump to the end and follow a running command again |
 
+**Timeline page**: a filter row, `[o] orchestrator  [a] calls  [u] tools  [x] text  [e] prompt/result  task: all  ▶
+replay here` (active kinds in the accent colour, hidden ones muted), and below it one row per event, oldest first:
+time, source (`orchestrator`, or `<task> <role> <attempt>` such as `alpha worker #1`), kind (`orch`, `prompt`, `call`,
+`tool`, `text`, `result`) and text. The events are the orchestrator's progress entries (without the activity lines),
+and for every session its prompt, its model calls, its tool calls, its texts and its result. `No events yet` while there
+is none.
+
+| Key | Action |
+| --- | --- |
+| `o`, `a`, `u`, `x`, `e` or a click on the label | Show or hide orchestrator entries, model calls, tool calls, texts, or prompts and results |
+| `f` or a click on `task:` | Task filter: only the selected event's task and the `run` events (`task: <task>`), or all again (`task: all`) |
+| Up, Down, PageUp, PageDown, Home, wheel | Move the selection; Up stops following |
+| End or a click on the last row | Select the last row and follow new events while the run is active |
+| Enter or a click on the selected row | Open the event: the log entry, the prompt, the call's figures, the tool call's input, result and diff, the text, or the result |
+| `c` | Open the event's session on the Conversation page (for a task's orchestrator entry: the task's last session) |
+| `t` or a click on `▶ replay here` | Replay at the selected event's time |
+
+## Replay
+
+The row under the header is the time bar: `<start> <50 cells> <end>  <state>`. `start` is the time of the first event of
+the timeline, `end` the later of the last event and the run's finish (the clock while the run is active). The cells
+before the cursor are `━`, the cursor is `●` and the cells after it `─`; while live the cursor is the last cell. The
+state is `live` (green), or `replay <clock> · <k> of <n> events · git live`, where k counts the events up to the replay
+time and n all events. While a run switch loads, ` · loading <run>` follows, and ` · <problem>` when a switch or listing
+failed. `no events yet` stands in for the bar while the run has no events.
+
+While replaying, every page shows the run at that time, rebuilt from the live data by one pure function: the progress
+log cut at the time, the run info (phase, start, finish) and the task states, attempts, details, costs, summaries and
+feedback rebuilt from it; the sessions that had started, with their tool calls, texts, model calls and results cut at
+the time and their state derived again; and the command logs written by then. Git stays live, which the state text marks
+with `git live`; the process list is empty. New data from the live run keeps arriving underneath, and Escape returns to
+it. Switching runs ends replay.
+
+## Run picker
+
+`r`, or a click on the run name in the header, opens the modal `Runs` dialog. It lists the repo's own run as `current`
+(when its `.orchestrator` holds `tasks.json`, `state.json` or `progress.md`) and then every archived run, newest stamp
+first. The archive layout is the orchestrator's: `<repo>.runs\<stamp>\.orchestrator`, beside the repo. Columns: `●` for
+the run shown, run (`current` or the stamp), spec, started, finished, tasks (`<done> done · <failed> failed · <n>
+tasks`) and provider (or the model when the provider is unknown). For each run it reads `tasks.json` (the spec file
+name and the number of tasks), `state.json` (the done and failed tasks) and `progress.md` (start, finish, provider and
+the planning model). A file that cannot be read or parsed shows as ` · <file>: <reason>` in the warning colour at the
+end of its row; a `.runs` folder that cannot be listed adds one last warning row. `loading…` stands in until the listing
+is done; it runs on its own thread, and the dialog refreshes when a new listing arrives.
+
+| Key | Action |
+| --- | --- |
+| Up, Down, wheel | Move the selection |
+| Enter or a click on a run | Switch to it (only close for the run shown) |
+| Escape, `q` or a click on `[X]` | Close |
+
+A switch runs in the background: the dashboard keeps showing the old run, with `loading <stamp>` in the time bar, until
+the new run's first read is done; then the old run's reader stops. When the new run cannot be opened, the old one stays
+and the time bar shows why.
+
 ## What it reads
 
 Everything under `<repo>/.orchestrator/`:
@@ -174,6 +246,11 @@ Everything under `<repo>/.orchestrator/`:
   `<task>-integration-setup.log`, `<task>-integration-check.log`, `bootstrap-<start>/attempt-<n>-setup.log` and
   `bootstrap-<start>/attempt-<n>-integration-check.log`, each with its `.stderr`), listed every poll and read again only
   when they changed.
+
+Every read that finds a change publishes a new snapshot of the run; the UI takes each new snapshot instance it finds on
+its next tick (not only one with a higher version number), so a switch to another run, whose versions start again,
+shows at once. The `Runs` dialog also reads `tasks.json`, `state.json` and `progress.md` of the archived runs under
+`<repo>.runs`, only when it opens.
 
 And, by each session's id, three stores the CLIs keep in the user profile folder:
 
@@ -216,7 +293,8 @@ versions line shows that provider in the warning colour.
 ## Read-only
 
 OrchDash never creates, changes, deletes or renames a file or folder. It opens files only for reading, with
-`FileShare.ReadWrite | FileShare.Delete` so that the orchestrator and the CLIs can keep writing them. It starts no
+`FileShare.ReadWrite | FileShare.Delete` so that the orchestrator and the CLIs can keep writing them; that holds for
+the run picker's reads of the archived runs too. It starts no
 process except `git`, and that only with the subcommands and arguments listed under "What it reads", each with
 `--no-optional-locks`; it runs no WMI operation other than the one process query; and it uses no network. It cannot
 stop a run.
@@ -250,10 +328,12 @@ repo's work tree, so the tests on them read the command logs but run neither git
 is tested on temp repos that the tests build with `git`. The UI tests run the app on an in-memory terminal and save each
 page and pop-up as an SVG in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/`, for example `app-claude-overview.svg`,
 `app-copilot-conversation.svg`, `app-claude-context.svg`, `app-claude-usage.svg`, `app-claude-graph.svg`,
-`app-claude-git.svg`, `app-claude-commands.svg`, `overview-context.svg`, `overview-process.svg`, `context.svg`,
-`context-part-popup.svg`, `context-system-popup.svg`, `context-tools-popup.svg`, `usage.svg`,
-`usage-session-popup.svg`, `graph.svg`, `graph-popup.svg`, `git.svg`, `git-diff-popup.svg`, `commands.svg` and
-`commands-popup.svg`.
+`app-claude-git.svg`, `app-claude-commands.svg`, `app-claude-timeline.svg`, `overview-context.svg`,
+`overview-process.svg`, `context.svg`, `context-part-popup.svg`, `context-system-popup.svg`, `context-tools-popup.svg`,
+`usage.svg`, `usage-session-popup.svg`, `graph.svg`, `graph-popup.svg`, `git.svg`, `git-diff-popup.svg`,
+`commands.svg`, `commands-popup.svg`, `timeline.svg`, `timeline-filtered.svg`, `timeline-popup.svg`,
+`shell-timebar.svg`, `shell-replay.svg` and `shell-runs.svg`. The run host's tests switch between copies of the two
+fixture runs laid out as a repo and an archived run in a temp folder.
 
 ## Manual checks
 
@@ -268,8 +348,18 @@ page and pop-up as an SVG in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/`, f
    runs (for Copilot too). Each running block on the Overview page shows its agent's pid, uptime, CPU and memory, which
    change as it works, and the task pop-up lists the task's processes; the Commands page follows a running acceptance
    log as it grows, and End follows it again after scrolling up.
-3. `dotnet run --project src/OrchDash -- C:\Data\AI\AgentOrchestratorDashboard` (the part 2 run of this repo): the
-   Graph page shows its waves, the Git page shows the 17 task branches and worktrees with their commits, files and
+3. The part 2 run of this repo (now archived under `C:\Data\AI\AgentOrchestratorDashboard.runs`; open it with `r` or
+   as the start argument): the Graph page shows its waves, the Git page shows the 17 task branches and worktrees with their commits, files and
    diffs, and the Commands page lists its setup, acceptance and integration logs with their outcomes and output.
-4. Open the SVG files in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/` after a test run and look at each page and
+4. `dotnet run --project src/OrchDash -- C:\Data\AI\AgentOrchestratorDashboard`: its `.orchestrator` holds only
+   `project.json`, so the header says `NotStarted`. `r` lists the four archived runs under
+   `C:\Data\AI\AgentOrchestratorDashboard.runs`, one of them interrupted. Switch to `20261006-195310`, read the
+   Timeline page, step back through the run with Left, Shift+Left and clicks on the time bar, and return to live with
+   Escape.
+5. `dotnet run --project src/OrchDash -- C:\Data\AI\AgentOrchestratorDashboard.runs\20261006-195310` directly: the
+   header shows `AgentOrchestratorDashboard · 20261006-195310`.
+6. `dotnet run --project src/OrchDash -- C:\Data\AI\TextKit`: replay through `count`'s syncs (Running with mode `sync`,
+   then `resolver (attempt 1)`, then Done with 2 sync runs).
+7. One live run: step back while agents run, and return to live with Escape; the dashboard then shows the newest state.
+8. Open the SVG files in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/` after a test run and look at each page and
    pop-up.
