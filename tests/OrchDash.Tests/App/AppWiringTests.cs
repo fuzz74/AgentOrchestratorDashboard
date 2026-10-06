@@ -7,7 +7,7 @@ using Xunit;
 
 namespace OrchDash.Tests.App;
 
-// Spec 18.1 and 18.2: the four pages in the real UI, and the provider stores on the folders the app is given
+// Spec 18.1, 18.2 and 28.1: the seven pages in the real UI, and the provider stores on the folders the app is given
 // (FixtureRuns.CreateStore passes the fixture store folders to AppRunner.CreateStore).
 public sealed class AppWiringTests : IDisposable
 {
@@ -16,15 +16,17 @@ public sealed class AppWiringTests : IDisposable
     public void Dispose() => _temp.Dispose();
 
     [Fact]
-    public void The_pages_are_overview_conversation_context_and_usage_in_this_order()
+    public void The_pages_are_overview_conversation_context_usage_graph_git_and_commands_in_this_order()
     {
-        Assert.Equal(["overview", "conversation", "context", "usage"], AppRunner.CreatePages().Select(p => p.Id));
+        Assert.Equal(
+            ["overview", "conversation", "context", "usage", "graph", "git", "commands"],
+            AppRunner.CreatePages().Select(p => p.Id));
     }
 
     [Fact]
-    public void The_real_ui_shows_the_four_tabs_and_keys_3_and_4_show_the_context_and_usage_pages()
+    public void The_real_ui_shows_the_seven_tabs_and_keys_3_to_7_show_the_other_pages()
     {
-        string? overview = null, context = null, usage = null;
+        string? overview = null, context = null, usage = null, graph = null, git = null, commands = null;
 
         var code = AppRunner.Run([FixtureRuns.ClaudeRepo], _temp.Path, TextWriter.Null, (root, onUpdate) =>
         {
@@ -36,17 +38,34 @@ public sealed class AppWiringTests : IDisposable
             harness.Type('4');
             usage = harness.Frame();
             harness.SaveSvg("app-claude-usage");
+            harness.Type('5');
+            graph = harness.Frame();
+            harness.SaveSvg("app-claude-graph");
+            harness.Type('6');
+            git = harness.Frame();
+            harness.SaveSvg("app-claude-git");
+            harness.Type('7');
+            commands = harness.Frame();
+            harness.SaveSvg("app-claude-commands");
             harness.Type('q');
-        }, FixtureRuns.ClaudeStore, FixtureRuns.CopilotStore);
+        }, FixtureRuns.ClaudeStore, FixtureRuns.CopilotStore, FixtureRuns.CommandLogsOnly());
 
         Assert.Equal(0, code);
         // Row 0 is the header, rows 1 to 3 are the tabs.
-        Assert.StartsWith("│ Overview │ │ Conversation │ │ Context │ │ Usage │", overview!.Split('\n')[2], StringComparison.Ordinal);
+        Assert.StartsWith(
+            "│ Overview │ │ Conversation │ │ Context │ │ Usage │ │ Graph │ │ Git │ │ Commands │",
+            overview!.Split('\n')[2],
+            StringComparison.Ordinal);
         Assert.DoesNotContain("Context per call", overview, StringComparison.Ordinal);
         Assert.Contains("Context per call", context, StringComparison.Ordinal);
         Assert.Contains("Make-up at call 8", context, StringComparison.Ordinal);
         Assert.Contains("Tokens per group", usage, StringComparison.Ordinal);
         Assert.DoesNotContain("Context per call", usage, StringComparison.Ordinal);
+        Assert.Contains("W1", graph, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tokens per group", graph, StringComparison.Ordinal);
+        Assert.Contains("read -", git, StringComparison.Ordinal);
+        Assert.Contains("audio-synth acceptance #1", commands, StringComparison.Ordinal);
+        Assert.DoesNotContain("read -", commands, StringComparison.Ordinal);
     }
 
     [Fact]
