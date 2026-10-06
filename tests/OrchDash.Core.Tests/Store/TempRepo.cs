@@ -8,12 +8,20 @@ public sealed class TempRepo : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "OrchDash.Store." + Guid.NewGuid().ToString("N"));
 
-    public TempRepo()
+    public TempRepo() : this("repo")
     {
-        RepoPath = Path.Combine(_root, "repo");
+    }
+
+    private TempRepo(string relativeRepoPath)
+    {
+        RepoPath = Path.Combine(_root, relativeRepoPath);
         Directory.CreateDirectory(LogsDir);
     }
 
+    // An archived run: the repo path is <temp>\Repo.runs\<stamp>.
+    public static TempRepo Archive(string stamp) => new(Path.Combine("Repo.runs", stamp));
+
+    public string Root => _root;
     public string RepoPath { get; }
     public string LogsDir => Path.Combine(RepoPath, ".orchestrator", "logs");
 
