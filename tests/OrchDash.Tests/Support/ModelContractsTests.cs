@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using OrchDash.Core.Model;
 using Xunit;
 
@@ -82,6 +83,37 @@ public sealed class ModelContractsTests
         Assert.Null(empty.Checkpoint);
         Assert.Null(empty.RateLimit);
         Assert.Same(empty, SessionContent.Empty);
+    }
+
+    [Fact]
+    public void A_timeline_event_has_record_equality()
+    {
+        var run = SampleRun.Create();
+        var session = run.Sessions[0];
+        TimelineEvent Event(TimelineKind kind) => new($"{session.Files.Key}:item:2", SampleRun.At(12, 0, 15), kind,
+            "alpha", 2, null, session, null, session.Content.Items[2], null);
+
+        Assert.Equal(Event(TimelineKind.Tool), Event(TimelineKind.Tool));
+        Assert.NotEqual(Event(TimelineKind.Tool), Event(TimelineKind.Text));
+        Assert.Equal(
+            new TimelineEvent("progress:0", run.Progress[0].Time, TimelineKind.Orchestrator, "run", 0, run.Progress[0],
+                null, null, null, null),
+            new TimelineEvent("progress:0", run.Progress[0].Time, TimelineKind.Orchestrator, "run", 0, run.Progress[0],
+                null, null, null, null));
+    }
+
+    [Fact]
+    public void A_run_entry_and_a_run_catalog_have_record_equality()
+    {
+        RunEntry Entry(string? problem) => new(@"C:\X\Repo.runs\20261006-195310", "20261006-195310", "spec.md",
+            SampleRun.At(12, 0, 0), SampleRun.At(12, 30, 0), 5, 4, 1, Provider.Claude, "opus", problem);
+
+        Assert.Equal(Entry(null), Entry(null));
+        Assert.NotEqual(Entry(null), Entry("tasks.json: not JSON"));
+
+        var runs = new[] { Entry(null) }.ToImmutableArray();
+        Assert.Equal(new RunCatalog(runs, null), new RunCatalog(runs, null));
+        Assert.NotEqual(new RunCatalog(runs, null), new RunCatalog(runs, @"C:\X\Repo.runs: access denied"));
     }
 
     [Fact]
