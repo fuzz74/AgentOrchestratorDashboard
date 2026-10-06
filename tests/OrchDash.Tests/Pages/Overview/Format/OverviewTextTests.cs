@@ -326,6 +326,127 @@ public sealed class OverviewTextTests
         Assert.Equal("  context 34.5k of 1.0M (3 %)", OverviewText.RunningBlock(session, _run, _now)[1]);
     }
 
+    private static AgentProcess Process(int pid, string? taskId, AgentRole? role, DateTimeOffset? startedAt, double? cpuShare = 0.5) =>
+        new(pid, "claude.exe", $"claude -p --name orch:{taskId}", startedAt, 2_500_000, cpuShare, taskId, role, null);
+
+    private RunSnapshot WithProcesses(params AgentProcess[] processes) =>
+        _run with { Processes = new ProcessInfo(_now, [.. processes], null) };
+
+    [Fact]
+    public void Running_block_shows_the_process_line_after_the_context_line()
+    {
+        var run = SampleRun.CreateInsight();
+        var beta = run.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
+
+        var lines = OverviewText.RunningBlock(beta, run, _now);
+
+        Assert.Equal(
+        [
+            "beta · [cyan]Worker[/] · #1 · claude-sonnet-4-5 · 3 tool calls · 30s ago",
+            "  context 34.5k of 200.0k (17 %)",
+            "  pid 4242 · up 20m00s · cpu 12 % · mem 367.0 MB",
+            "  Let me read the alpha parser first.",
+            "  Read src/Alpha/Parser.cs",
+            "  Grep Parse\\( in src",
+            "  Now I will write the checker and build it.",
+            "  Bash dotnet build src/Beta",
+        ], lines);
+    }
+
+    [Fact]
+    public void Running_block_has_no_process_line_without_a_sample()
+    {
+        var run = SampleRun.CreateInsight() with { Processes = ProcessInfo.Empty };
+        var beta = run.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
+
+        var lines = OverviewText.RunningBlock(beta, run, _now);
+
+        Assert.Equal(7, lines.Count);
+        Assert.Equal("  Let me read the alpha parser first.", lines[2]);
+    }
+
+    [Fact]
+    public void Running_block_says_no_process_when_the_sample_has_no_match()
+    {
+        var run = WithProcesses(
+            Process(1, "alpha", AgentRole.Worker, SampleRun.At(12, 0, 0)),
+            Process(2, "beta", AgentRole.Reviewer, SampleRun.At(12, 0, 0)));
+
+        Assert.Equal("  [warning]no process[/]", OverviewText.RunningBlock(Session(SampleRun.BetaWorkerKey), run, _now)[2]);
+        Assert.Equal("  [warning]no process[/]",
+            OverviewText.RunningBlock(Session(SampleRun.BetaWorkerKey), WithProcesses(), _now)[2]);
+    }
+
+    [Fact]
+    public void Running_block_takes_the_latest_started_of_several_matching_processes()
+    {
+        var run = WithProcesses(
+            Process(1, "beta", AgentRole.Worker, null),
+            Process(2, "beta", AgentRole.Worker, SampleRun.At(12, 20, 0)),
+            Process(3, "beta", AgentRole.Worker, SampleRun.At(12, 25, 0)),
+            Process(4, "beta", AgentRole.Worker, SampleRun.At(12, 10, 0)));
+
+        Assert.Equal(
+            "  pid 3 · up 5m00s · cpu 50 % · mem 2.5 MB",
+            OverviewText.RunningBlock(Session(SampleRun.BetaWorkerKey), run, _now)[2]);
+    }
+
+    [Fact]
+    public void Running_block_shows_dashes_for_an_unknown_start_and_cpu_share()
+    {
+        var run = WithProcesses(Process(7, "beta", AgentRole.Worker, null, cpuShare: null));
+
+        Assert.Equal(
+            "  pid 7 · up - · cpu - · mem 2.5 MB",
+            OverviewText.RunningBlock(Session(SampleRun.BetaWorkerKey), run, _now)[2]);
+    }
+
+    [Fact]
+    public void Running_block_of_a_planner_matches_the_process_without_task_id()
+    {
+        var beta = Session(SampleRun.BetaWorkerKey);
+        var planner = beta with { Files = beta.Files with { TaskId = null, Role = AgentRole.Planner } };
+        var run = WithProcesses(
+            Process(1, "beta", AgentRole.Planner, SampleRun.At(12, 0, 0)),
+            Process(2, null, AgentRole.Bootstrap, SampleRun.At(12, 0, 0)),
+            Process(3, null, AgentRole.Planner, SampleRun.At(11, 59, 0)));
+
+        Assert.Equal("  pid 3 · up 31m00s · cpu 50 % · mem 2.5 MB", OverviewText.RunningBlock(planner, run, _now)[2]);
+    }
+
+    [Fact]
+    public void Task_popup_lists_the_tasks_processes_after_the_sessions()
+    {
+        var run = SampleRun.CreateInsight();
+        var beta = run.Tasks.Single(t => t.Id == "beta");
+        var alpha = run.Tasks.Single(t => t.Id == "alpha");
+
+        var sections = OverviewText.TaskPopup(beta, run);
+
+        Assert.Equal(["Status", "Plan", "Prompt", "Sessions", "Processes"], sections.Select(s => s.Heading));
+        Assert.Equal(
+            "pid 4242 · worker · started 12:10:00 · cpu 12 % · mem 367.0 MB\n" +
+            "claude -p --output-format stream-json --verbose --name orch:beta",
+            sections[^1].Text);
+        Assert.DoesNotContain(OverviewText.TaskPopup(alpha, run), s => s.Heading == "Processes");
+    }
+
+    [Fact]
+    public void Task_popup_shows_dashes_for_unknown_process_values_and_keeps_brackets_plain()
+    {
+        var run = WithProcesses(
+            Process(1, "beta", null, null, cpuShare: null) with { CommandLine = "" },
+            Process(2, "alpha", AgentRole.Worker, null),
+            Process(3, "beta", AgentRole.Reviewer, SampleRun.At(12, 20, 0)) with { CommandLine = "claude [x] --name orch:beta:review" });
+
+        var section = OverviewText.TaskPopup(Task("beta"), run).Single(s => s.Heading == "Processes");
+
+        Assert.Equal(
+            "pid 1 · - · started - · cpu - · mem 2.5 MB\n-\n" +
+            "pid 3 · reviewer · started 12:20:00 · cpu 50 % · mem 2.5 MB\nclaude [x] --name orch:beta:review",
+            section.Text);
+    }
+
     [Theory]
     [InlineData(0, "12:00:00 Run started: 5 tasks, max 2 in parallel")]
     [InlineData(1, "[success]12:09:30 [[alpha]] DONE in 9m25s, 0.25 USD[/]")]
