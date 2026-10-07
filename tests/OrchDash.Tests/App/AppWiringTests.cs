@@ -7,7 +7,7 @@ using Xunit;
 
 namespace OrchDash.Tests.App;
 
-// Spec 18.1, 18.2 and 28.1: the seven pages in the real UI, and the provider stores on the folders the app is given
+// Spec 18.1, 18.2, 28.1 and 34.1: the eight pages in the real UI, and the provider stores on the folders the app is given
 // (FixtureRuns.CreateStore passes the fixture store folders to AppRunner.CreateStore).
 public sealed class AppWiringTests : IDisposable
 {
@@ -16,17 +16,17 @@ public sealed class AppWiringTests : IDisposable
     public void Dispose() => _temp.Dispose();
 
     [Fact]
-    public void The_pages_are_overview_conversation_context_usage_graph_git_and_commands_in_this_order()
+    public void The_pages_are_overview_conversation_context_usage_graph_git_commands_and_timeline_in_this_order()
     {
         Assert.Equal(
-            ["overview", "conversation", "context", "usage", "graph", "git", "commands"],
+            ["overview", "conversation", "context", "usage", "graph", "git", "commands", "timeline"],
             AppRunner.CreatePages().Select(p => p.Id));
     }
 
     [Fact]
-    public void The_real_ui_shows_the_seven_tabs_and_keys_3_to_7_show_the_other_pages()
+    public void The_real_ui_shows_the_eight_tabs_and_keys_3_to_8_show_the_other_pages()
     {
-        string? overview = null, context = null, usage = null, graph = null, git = null, commands = null;
+        string? overview = null, context = null, usage = null, graph = null, git = null, commands = null, timeline = null;
 
         var code = AppRunner.Run([FixtureRuns.ClaudeRepo], _temp.Path, TextWriter.Null, (root, onUpdate) =>
         {
@@ -47,15 +47,21 @@ public sealed class AppWiringTests : IDisposable
             harness.Type('7');
             commands = harness.Frame();
             harness.SaveSvg("app-claude-commands");
+            harness.Type('8');
+            timeline = harness.Frame();
+            harness.SaveSvg("app-claude-timeline");
             harness.Type('q');
         }, FixtureRuns.ClaudeStore, FixtureRuns.CopilotStore, FixtureRuns.CommandLogsOnly());
 
         Assert.Equal(0, code);
-        // Row 0 is the header, rows 1 to 3 are the tabs.
+        // Row 0 is the header, row 1 the time bar, rows 2 to 4 are the tabs.
         Assert.StartsWith(
-            "│ Overview │ │ Conversation │ │ Context │ │ Usage │ │ Graph │ │ Git │ │ Commands │",
-            overview!.Split('\n')[2],
+            "│ Overview │ │ Conversation │ │ Context │ │ Usage │ │ Graph │ │ Git │ │ Commands │ │ Timeline │",
+            overview!.Split('\n')[3],
             StringComparison.Ordinal);
+        // The library cuts the command bar at the screen width: the Overview page's bar ends at [7] Commands, the Usage
+        // page's, with fewer page commands, reaches [8] Timeline.
+        Assert.Contains("| [7] Commands | [8] Timeline |", usage!.TrimEnd().Split('\n')[^1], StringComparison.Ordinal);
         Assert.DoesNotContain("Context per call", overview, StringComparison.Ordinal);
         Assert.Contains("Context per call", context, StringComparison.Ordinal);
         Assert.Contains("Make-up at call 8", context, StringComparison.Ordinal);
@@ -66,6 +72,8 @@ public sealed class AppWiringTests : IDisposable
         Assert.Contains("read -", git, StringComparison.Ordinal);
         Assert.Contains("audio-synth acceptance #1", commands, StringComparison.Ordinal);
         Assert.DoesNotContain("read -", commands, StringComparison.Ordinal);
+        Assert.Contains("[o] orchestrator  [a] calls  [u] tools  [x] text  [e] prompt/result  task: all", timeline, StringComparison.Ordinal);
+        Assert.DoesNotContain("[o] orchestrator", commands, StringComparison.Ordinal);
     }
 
     [Fact]

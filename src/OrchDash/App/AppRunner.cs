@@ -16,6 +16,7 @@ using OrchDash.Pages.Conversation;
 using OrchDash.Pages.GitView;
 using OrchDash.Pages.Graph;
 using OrchDash.Pages.Overview;
+using OrchDash.Pages.Timeline;
 using OrchDash.Pages.Usage;
 using OrchDash.Shell;
 using XenoAtom.Terminal.UI;
@@ -23,8 +24,9 @@ using XenoAtom.Terminal.UI;
 namespace OrchDash.App;
 
 /// <summary>
-/// The whole app behind <c>Program.Main</c> (spec 1.1-1.5): finds the repo, starts the store, builds the shell and runs
-/// the UI through <c>runUi</c>, which is <c>Terminal.Run</c> in production and a fake in tests.
+/// The whole app behind <c>Program.Main</c> (spec 1.1-1.5, 34.4): finds the repo, starts the run host with its first
+/// store, builds the shell and runs the UI through <c>runUi</c>, which is <c>Terminal.Run</c> in production and a fake
+/// in tests. The start path may be an archived run <c>&lt;repo&gt;.runs\&lt;stamp&gt;</c>, which holds <c>.orchestrator</c>.
 /// </summary>
 public static class AppRunner
 {
@@ -42,7 +44,8 @@ public static class AppRunner
     /// against <paramref name="currentDirectory"/>; otherwise the search starts at <paramref name="currentDirectory"/>.
     /// <paramref name="stderr"/> is written only before the UI starts or after <paramref name="runUi"/> has returned
     /// or thrown, so never while the fullscreen UI is shown. <paramref name="claudeDir"/>, <paramref name="copilotDir"/>
-    /// and <paramref name="sources"/> are passed to <see cref="CreateStore"/>.
+    /// and <paramref name="sources"/> are passed to <see cref="CreateStore"/> for every store the <see cref="RunHost"/>
+    /// creates: null sources give each store fresh ones, a given instance is shared by them all.
     /// </summary>
     public static int Run(string[] args, string currentDirectory, TextWriter stderr, Action<Visual, Func<TerminalLoopResult>> runUi,
         string? claudeDir = null, string? copilotDir = null, InsightSources? sources = null)
@@ -62,10 +65,11 @@ public static class AppRunner
 
         try
         {
-            // The store is disposed when this block is left, also by an exception, before the catch below runs.
-            using var store = CreateStore(repo, claudeDir: claudeDir, copilotDir: copilotDir, sources: sources);
-            store.Start();
-            var shell = new AppShell(CreatePages(), () => store.Current);
+            // The host, and so the current store, is disposed when this block is left, also by an exception, before the
+            // catch below runs. A null sources reaches CreateStore, so every store the host creates gets fresh sources.
+            using var host = new RunHost(repo, path => CreateStore(path, claudeDir: claudeDir, copilotDir: copilotDir, sources: sources));
+            host.Start();
+            var shell = new AppShell(CreatePages(), host.Latest, runs: host);
             runUi(shell.Root, shell.OnUpdate);
             return ExitOk;
         }
@@ -117,9 +121,12 @@ public static class AppRunner
             new CopilotUsageReader(Path.Combine(copilotDir, "session-store.db")));
     }
 
-    /// <summary>The pages in tab order (28.1): Overview, Conversation, Context, Usage, Graph, Git, Commands.</summary>
+    /// <summary>The pages in tab order (34.1): Overview, Conversation, Context, Usage, Graph, Git, Commands, Timeline.</summary>
     public static IReadOnlyList<IPage> CreatePages() =>
-        [new OverviewPage(), new ConversationPage(), new ContextPage(), new UsagePage(), new GraphPage(), new GitPage(), new CommandsPage()];
+    [
+        new OverviewPage(), new ConversationPage(), new ContextPage(), new UsagePage(), new GraphPage(), new GitPage(), new CommandsPage(),
+        new TimelinePage(),
+    ];
 
     private static ISessionParser CreateParser(Provider provider, string? workDir) =>
         provider == Provider.Claude ? new ClaudeSessionParser(workDir) : new CopilotSessionParser(workDir);

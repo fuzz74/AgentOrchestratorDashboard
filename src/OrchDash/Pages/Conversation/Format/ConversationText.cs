@@ -65,7 +65,7 @@ public static class ConversationText
     {
         var entries = ImmutableArray.CreateBuilder<ConversationEntry>();
         entries.Add(Header(session, now));
-        entries.Add(Prompt(session.Prompt));
+        entries.Add(PromptEntry(session.Prompt));
 
         if (!session.Files.HasEventsFile)
         {
@@ -80,11 +80,11 @@ public static class ConversationText
             if (item.CallId is { } callId && callId != previousCallId && CallSeparator(content.Calls, callId) is { } separator)
                 entries.Add(separator);
             previousCallId = item.CallId;
-            entries.Add(Item(item));
+            entries.Add(ItemEntry(item));
         }
 
         if (content.Result is { } result)
-            entries.Add(Result(result));
+            entries.Add(ResultEntry(result));
         return entries.ToImmutable();
     }
 
@@ -126,7 +126,7 @@ public static class ConversationText
         return new ConversationEntry(EntryKind.Header, lines.ToImmutable(), files.Key, HeaderPopup.Sections(session));
     }
 
-    private static ConversationEntry Prompt(string prompt)
+    public static ConversationEntry PromptEntry(string prompt)
     {
         var label = Look.Tag("accent", "prompt") + " " + Look.Tag("muted", Words.Count(prompt.Length, "char"));
         return new ConversationEntry(EntryKind.Prompt, Lines(label, TextPreview.FirstLines(prompt, PreviewLines)),
@@ -153,7 +153,7 @@ public static class ConversationText
         return new ConversationEntry(EntryKind.CallSeparator, [Look.Tag("muted", text)], "", []);
     }
 
-    private static ConversationEntry Item(ConversationItem item) => item switch
+    public static ConversationEntry ItemEntry(ConversationItem item) => item switch
     {
         AssistantText text => TextEntry(EntryKind.AssistantText, "", text.Text, "", "Assistant text"),
         Thinking thinking => ThinkingEntry(thinking),
@@ -211,7 +211,7 @@ public static class ConversationText
         return new ConversationEntry(EntryKind.ToolCall, lines.ToImmutable(), summary, sections.ToImmutable());
     }
 
-    private static ConversationEntry Result(SessionResult result)
+    public static ConversationEntry ResultEntry(SessionResult result)
     {
         var label = Look.Tag(result.IsError ? "error" : "success", "result " + result.Subtype);
 

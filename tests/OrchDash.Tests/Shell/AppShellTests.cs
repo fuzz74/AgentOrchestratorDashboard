@@ -48,12 +48,13 @@ public sealed class AppShellTests
         var lines = Lines(host);
 
         Assert.Equal("SampleRepo  Running  30m00s  1 problems  quit", lines[0].Trim());
-        Assert.Contains("│ First │", lines[2], StringComparison.Ordinal);
-        Assert.Contains("│ Second │", lines[2], StringComparison.Ordinal);
-        Assert.True(lines[2].IndexOf("First", StringComparison.Ordinal) < lines[2].IndexOf("Second", StringComparison.Ordinal));
+        Assert.StartsWith("12:00:00 ", lines[1], StringComparison.Ordinal);
+        Assert.Contains("│ First │", lines[3], StringComparison.Ordinal);
+        Assert.Contains("│ Second │", lines[3], StringComparison.Ordinal);
+        Assert.True(lines[3].IndexOf("First", StringComparison.Ordinal) < lines[3].IndexOf("Second", StringComparison.Ordinal));
         Assert.Contains("alpha page version 1", host.Frame(), StringComparison.Ordinal);
         Assert.DoesNotContain("beta page", host.Frame(), StringComparison.Ordinal);
-        Assert.Equal("[1] First | [2] Second | [p] Problems | [q] Quit | [Ctrl+Q] Quit", lines[^1].Trim());
+        Assert.Equal("[1] First | [2] Second | [Left] Step | [p] Problems | [q] Quit | [Ctrl+Q] Quit", lines[^1].Trim());
         host.SaveSvg("shell");
     }
 
@@ -145,14 +146,14 @@ public sealed class AppShellTests
     }
 
     [Fact]
-    public void A_snapshot_with_the_same_version_is_not_taken()
+    public void A_new_snapshot_instance_with_the_same_version_is_taken()
     {
         var first = SampleRun.Create();
         using var host = UiTestHost.Start(Pages(), first);
 
         host.SetSnapshot(first with { Problems = [] });
 
-        Assert.Contains("1 problems", Lines(host)[0], StringComparison.Ordinal);
+        Assert.Equal("SampleRepo  Running  30m00s  quit", Lines(host)[0].Trim());
     }
 
     [Fact]
