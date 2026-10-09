@@ -433,6 +433,234 @@ public sealed partial class ConversationPageTests
         Assert.DoesNotContain("[X]", host.Frame(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_list_shows_each_sessions_sub_agents_as_child_rows_below_it()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        var list = PaneText(host, "Sessions");
+
+        // The start of each row; ConversationTextTests checks the whole text of each child row.
+        string[] rows =
+        [
+            "✔ planner planner #1 gpt-5.6-luna 58s",
+            "├✔ Map the repo · explore · gpt-5.6-luna · 28s",
+            "│ └✔ Read the spec · explore · gpt-5.6-luna · 14s · 1 tool call",
+            "└✔ Survey the tests · explore · gpt-5.6-luna · 12s · 1 tool call",
+            "✔ alpha worker #1 claude-sonnet-4-5 5m50s 4 tool calls 0.25 USD",
+            "├✔ Survey the parser module · Explore · claude-haiku-4-5 · 41s · 2 tool calls",
+            "└✖ Check the public API surface of… · general-purpose · claude-sonnet-4-5 · 44s · 1 tool call",
+            "✔ alpha reviewer #1.1",
+            "▶ beta worker #1 claude-sonnet-4-5 19m55s 4 tool calls",
+            "└▶ Survey CLI flags · Explore",
+        ];
+        var positions = rows.Select(row => list.IndexOf(row, StringComparison.Ordinal)).ToArray();
+        Assert.All(positions, position => Assert.True(position >= 0, list));
+        Assert.Equal(positions.Order(), positions);
+    }
+
+    [Fact]
+    public void Up_and_Down_select_the_child_rows()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        host.Press(TerminalKey.Down);
+        Assert.StartsWith("  ├✔ Map the repo · explore", SelectedSession(host), StringComparison.Ordinal);
+        host.Press(TerminalKey.Down);
+        Assert.StartsWith("  │ └✔ Read the spec · explore", SelectedSession(host), StringComparison.Ordinal);
+        Assert.Equal("sub-agent planner #1 › Map the repo › Read the spec", EntryLines(host)[0]);
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Down);
+        Assert.StartsWith("✔ alpha worker #1", SelectedSession(host), StringComparison.Ordinal);
+
+        host.Press(TerminalKey.Up);
+
+        Assert.StartsWith("  └✔ Survey the tests · explore", SelectedSession(host), StringComparison.Ordinal);
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.PlannerKey}|{SampleRun.PlannerSub3Id}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Down_from_a_session_selects_its_first_sub_agent_and_shows_its_entries()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText("alpha worker #1");
+
+        host.Press(TerminalKey.Down);
+
+        Assert.StartsWith("  ├✔ Survey the parser module · Explore · claude-haiku-4-5 · 41s · 2 tool calls",
+            SelectedSession(host), StringComparison.Ordinal);
+        var entries = EntryLines(host);
+        Assert.Equal(
+        [
+            "sub-agent alpha worker #1 › Survey the parser module",
+            "Explore · claude-haiku-4-5 · ✔ succeeded · started 12:00:17 · 41s · 2 tool calls",
+            "prompt 56 chars List the files in src/Alpha and say what each one holds.",
+            "call 1 · 12:00:19 · context 4.0k",
+            "Glob src/Alpha/** ok 1s",
+            "src/Alpha/Lexer.cs...",
+            "Read src/Alpha/Parser.cs ok 1s",
+            "namespace Alpha;...",
+            "call 2 · 12:00:50 · context 5.4k",
+            "The parser module has 3 files.",
+            "result succeeded The parser module has 3 files.",
+        ], entries);
+        Assert.Equal("sub-agent alpha worker #1 › Survey the parser module", SelectedEntry(host));
+        host.SaveSvg("conversation-subagent");
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.AlphaWorkerKey}|{SampleRun.AlphaSub1Id}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_session_shows_only_its_own_entries_with_a_start_entry_per_sub_agent()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        host.ClickText("alpha worker #1");
+
+        var entries = EntryLines(host);
+        Assert.Contains("✔ sub-agent Survey the parser module · Explore · succeeded", entries);
+        Assert.Contains("✖ sub-agent Check the public API surface of… · general-purpose · failed", entries);
+        Assert.Contains("call 2 · 12:03:00 · context 43.3k", entries);
+        Assert.DoesNotContain("Glob src/Alpha/** ok 1s", entries);
+        Assert.Equal("result success done Added Parser with Parse and TryParse.", entries[^3]);
+    }
+
+    [Fact]
+    public void Enter_on_a_start_entry_selects_the_sub_agent_and_keeps_the_keys_on_its_entries()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText("alpha worker #1");
+        host.Press(TerminalKey.Tab);
+        for (var i = 0; i < 6; i++)
+        {
+            host.Press(TerminalKey.Down);
+        }
+        Assert.Equal("✔ sub-agent Survey the parser module · Explore · succeeded", SelectedEntry(host));
+
+        host.Press(TerminalKey.Enter);
+
+        Assert.StartsWith("  ├✔ Survey the parser module", SelectedSession(host), StringComparison.Ordinal);
+        Assert.Equal("sub-agent alpha worker #1 › Survey the parser module", SelectedEntry(host));
+        host.Press(TerminalKey.Down);
+        Assert.StartsWith("prompt 56 chars", SelectedEntry(host), StringComparison.Ordinal);
+        Assert.StartsWith("  ├✔ Survey the parser module", SelectedSession(host), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_click_on_a_start_entry_selects_the_sub_agent()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText("beta worker #1");
+
+        host.ClickText("sub-agent Survey CLI flags");
+
+        Assert.StartsWith("  └▶ Survey CLI flags", SelectedSession(host), StringComparison.Ordinal);
+        Assert.Equal("sub-agent beta worker #1 › Survey CLI flags", EntryLines(host)[0]);
+        Assert.Equal("Read src/Beta/Program.cs running", SelectedEntry(host));
+        host.Press(TerminalKey.Up);
+        Assert.Equal("call 1 · 12:29:12 · context 3.6k", SelectedEntry(host));
+    }
+
+    [Fact]
+    public void A_click_on_a_child_row_selects_the_sub_agent_and_sets_the_selected_key()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        host.ClickText("Survey CLI flags");
+
+        Assert.StartsWith("  └▶ Survey CLI flags", SelectedSession(host), StringComparison.Ordinal);
+        Assert.Equal("sub-agent beta worker #1 › Survey CLI flags", EntryLines(host)[0]);
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.BetaWorkerKey}|{SampleRun.BetaSub1Id}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void End_on_a_running_sub_agent_follows_its_new_entries()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText("Survey CLI flags");
+        host.Press(TerminalKey.Tab);
+        Assert.Equal("Read src/Beta/Program.cs running", SelectedEntry(host));
+
+        host.Press(TerminalKey.Up);
+        host.SetSnapshot(WithBetaSubText(2, "Two flags so far."));
+        Assert.Equal("call 1 · 12:29:12 · context 3.6k", SelectedEntry(host));
+
+        host.Press(TerminalKey.End);
+        Assert.Equal("Two flags so far.", SelectedEntry(host));
+        host.SetSnapshot(WithBetaSubText(3, "Two flags so far.", "Three flags now."));
+        Assert.Equal("Three flags now.", SelectedEntry(host));
+    }
+
+    [Fact]
+    public void Enter_on_the_sub_agent_header_prompt_and_result_opens_their_popups()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText("Survey the parser module");
+        host.Press(TerminalKey.Tab);
+
+        host.Press(TerminalKey.Enter);
+        AssertPopup(host, "alpha worker #1 › Survey the parser module", "Sub-agent");
+        Assert.Contains("Parent: agent", PopupLines(host));
+        host.Press(TerminalKey.Escape);
+
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Enter);
+        AssertPopup(host, "Prompt", "Prompt");
+        Assert.Contains("List the files in src/Alpha and say what each one holds.", PopupLines(host));
+        host.Press(TerminalKey.Escape);
+
+        host.Press(TerminalKey.End);
+        host.Press(TerminalKey.Enter);
+        AssertPopup(host, "Result", "Report");
+        Assert.Contains("The parser module has 3 files.", PopupLines(host));
+    }
+
+    [Fact]
+    public void A_key_naming_a_sub_agent_the_session_does_not_have_selects_the_session()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText("Survey CLI flags");
+
+        host.SetSnapshot(WithoutBetaSubAgent(2));
+
+        Assert.StartsWith("▶ beta worker #1", SelectedSession(host), StringComparison.Ordinal);
+        Assert.Equal("Claude worker beta claude-sonnet-4-5 ▶ running", EntryLines(host)[0]);
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.BetaWorkerKey}|{SampleRun.BetaSub1Id}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    /// <summary>The sub-agent sample with assistant texts of the beta worker's sub-agent added.</summary>
+    private static RunSnapshot WithBetaSubText(long version, params string[] texts)
+    {
+        var snapshot = SampleRun.CreateSubAgents();
+        var index = snapshot.Sessions.IndexOf(snapshot.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey));
+        var beta = snapshot.Sessions[index];
+        var items = texts.Select(text =>
+            new AssistantText("msg_01S1beta", SampleRun.At(12, 29, 40), text) { AgentId = SampleRun.BetaSub1Id });
+        var longer = beta with { Content = beta.Content with { Items = beta.Content.Items.AddRange(items) } };
+        return snapshot with { Version = version, Sessions = snapshot.Sessions.SetItem(index, longer) };
+    }
+
+    /// <summary>The sub-agent sample before the beta worker started its sub-agent, as a replay may show it.</summary>
+    private static RunSnapshot WithoutBetaSubAgent(long version)
+    {
+        var snapshot = SampleRun.CreateSubAgents();
+        var index = snapshot.Sessions.IndexOf(snapshot.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey));
+        var beta = snapshot.Sessions[index];
+        var earlier = beta with
+        {
+            Content = beta.Content with
+            {
+                Items = [.. beta.Content.Items.Where(item => item.AgentId is null && item is not ToolCall { Name: "Agent" })],
+                Calls = SubAgents.Calls(beta.Content, null),
+                SubAgents = [],
+            },
+        };
+        return snapshot with { Version = version, Sessions = snapshot.Sessions.SetItem(index, earlier) };
+    }
+
     /// <summary>The sample run with assistant texts added to the beta worker session.</summary>
     private static RunSnapshot WithBetaText(long version, params string[] texts) =>
         WithBetaItems(version, [.. texts.Select(text => new AssistantText(null, SampleRun.At(12, 29, 40), text))]);
@@ -488,12 +716,13 @@ public sealed partial class ConversationPageTests
 
     private static string SelectedSession(UiTestHost host)
     {
-        // A wrapped row continues on the next lines, up to the next row, which starts with a state icon.
+        // A wrapped row continues on the next lines, up to the next row, which starts with a state icon, or with the
+        // tree line of a child row after its indent.
         var lines = PaneLines(host, "Sessions");
         var start = Array.FindIndex(lines, line => line.StartsWith('→'));
         Assert.True(start >= 0, host.Frame());
         var parts = new List<string> { lines[start][2..] };
-        for (var i = start + 1; i < lines.Length && lines[i].Length > 2 && !"✔▶✖◌".Contains(lines[i][2], StringComparison.Ordinal); i++)
+        for (var i = start + 1; i < lines.Length && lines[i].Length > 2 && !"✔▶✖◌├│└".Contains(lines[i][2..].TrimStart()[0], StringComparison.Ordinal); i++)
         {
             parts.Add(lines[i].Trim());
         }

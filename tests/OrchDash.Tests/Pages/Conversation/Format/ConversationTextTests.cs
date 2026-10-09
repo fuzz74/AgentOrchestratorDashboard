@@ -11,10 +11,14 @@ public sealed class ConversationTextTests
     private static readonly DateTimeOffset Now = SampleRun.At(12, 30, 0);
 
     private readonly RunSnapshot _run = SampleRun.Create();
+    private readonly RunSnapshot _subRun = SampleRun.CreateSubAgents();
 
     private Session AlphaWorker => _run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
     private Session AlphaReview => _run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaReviewKey);
     private Session BetaWorker => _run.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
+    private Session Planner => _subRun.Sessions.Single(s => s.Files.Key == SampleRun.PlannerKey);
+    private Session SubAlphaWorker => _subRun.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
+    private Session SubBetaWorker => _subRun.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
 
     [Fact]
     public void Sessions_are_ordered_bootstrap_planner_then_by_task()
@@ -462,6 +466,341 @@ public sealed class ConversationTextTests
         Assert.Equal(["[warning][[kind]][/] [[text]]"], entries[4].Lines);
         Assert.Equal(["Grep a[[bc]] in src [success]ok[/]", "[muted][[/]][/]"], entries[5].Lines);
         Assert.Contains("model[[1]]", ConversationText.SessionRow(session, Now), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Child_rows_show_name_type_model_span_and_the_sub_agents_own_tool_calls()
+    {
+        Assert.Equal(
+        [
+            "  [muted]├[/][success]✔[/] Map the repo · explore · gpt-5.6-luna · 28s · 2 tool calls",
+            "  [muted]│ └[/][success]✔[/] Read the spec · explore · gpt-5.6-luna · 14s · 1 tool call",
+            "  [muted]└[/][success]✔[/] Survey the tests · explore · gpt-5.6-luna · 12s · 1 tool call",
+        ], AgentTree.Rows([Planner]).Select(row => ConversationText.ChildRow(row, Now)));
+        Assert.Equal(
+        [
+            "  [muted]├[/][success]✔[/] Survey the parser module · Explore · claude-haiku-4-5 · 41s · 2 tool calls",
+            "  [muted]└[/][error]✖[/] Check the public API surface of… · general-purpose · claude-sonnet-4-5 · 44s · 1 tool call",
+        ], AgentTree.Rows([SubAlphaWorker]).Select(row => ConversationText.ChildRow(row, Now)));
+        Assert.Equal(
+            ["  [muted]└[/][primary]▶[/] Survey CLI flags · Explore · claude-haiku-4-5 · 50s · 1 tool call"],
+            AgentTree.Rows([SubBetaWorker]).Select(row => ConversationText.ChildRow(row, Now)));
+    }
+
+    [Fact]
+    public void Child_rows_of_unknown_fields_show_dashes_and_escape_the_name()
+    {
+        var sub = SubAlphaWorker.Content.SubAgents[0] with { Name = "List [all] files", AgentType = null, Model = "", StartedAt = null };
+        var session = SubAlphaWorker with { Content = SubAlphaWorker.Content with { SubAgents = [sub] } };
+
+        Assert.Equal("  [muted]└[/][success]✔[/] List [[all]] files · - · - · - · 2 tool calls",
+            ConversationText.ChildRow(new AgentRow(session, sub, 1, "└"), Now));
+    }
+
+    [Fact]
+    public void A_running_sub_agent_of_a_session_that_ended_is_aborted()
+    {
+        var ended = SubBetaWorker with { State = SessionState.Succeeded };
+        var sub = ended.Content.SubAgents.Single();
+
+        var start = ConversationText.Entries(ended, Now).Single(e => e.Kind == EntryKind.SubAgent);
+        var entries = ConversationText.SubAgentEntries(ended, SampleRun.BetaSub1Id, Now);
+
+        Assert.Equal("  [muted]└[/][muted]◌[/] Survey CLI flags · Explore · claude-haiku-4-5 · 50s · 1 tool call",
+            ConversationText.ChildRow(AgentTree.Rows([ended]).Single(), Now));
+        Assert.Equal(["[muted]◌[/] [accent]sub-agent[/] Survey CLI flags · Explore · aborted"], start.Lines);
+        Assert.Equal("Explore · claude-haiku-4-5 · [muted]◌ aborted[/] · started 12:29:10 · 50s · 1 tool call", entries[0].Lines[1]);
+        Assert.Equal(EntryKind.Result, entries[^1].Kind);
+        Assert.Equal(["[muted]result aborted[/]"], entries[^1].Lines);
+        Assert.Empty(entries[^1].Popup);
+        AssertSameEntry(entries[^1], ConversationText.SubAgentResultEntry(ended, sub));
+    }
+
+    [Fact]
+    public void Session_rows_count_only_the_agents_own_tool_calls()
+    {
+        Assert.Equal("[success]✔[/] planner [blue]planner[/] #1 gpt-5.6-luna 58s 2 tool calls",
+            ConversationText.SessionRow(Planner, Now));
+        Assert.Equal("[success]✔[/] alpha [cyan]worker[/] #1 claude-sonnet-4-5 5m50s 4 tool calls 0.25 USD",
+            ConversationText.SessionRow(SubAlphaWorker, Now));
+        Assert.Equal("[primary]▶[/] beta [cyan]worker[/] #1 claude-sonnet-4-5 19m55s 4 tool calls",
+            ConversationText.SessionRow(SubBetaWorker, Now));
+    }
+
+    [Fact]
+    public void Session_entries_show_only_the_agents_own_items_and_number_its_own_calls()
+    {
+        var entries = ConversationText.Entries(Planner, Now);
+
+        Assert.Equal(
+        [
+            EntryKind.Header, EntryKind.Prompt,
+            EntryKind.CallSeparator, EntryKind.AssistantText, EntryKind.SubAgent, EntryKind.SubAgent,
+            EntryKind.CallSeparator, EntryKind.AssistantText,
+            EntryKind.Result,
+        ], entries.Select(e => e.Kind));
+        Assert.Equal(["[muted]call 1 · 11:59:02 · context 12.4k[/]"], entries[2].Lines);
+        Assert.Equal(["I will map the repo first, then survey the tests."], entries[3].Lines);
+        Assert.Equal(["[muted]call 2 · 11:59:54 · context 15.8k[/]"], entries[6].Lines);
+        Assert.Equal(
+            ["The plan has five tasks in three waves: alpha and gamma, then beta and delta, then epsilon."],
+            entries[7].Lines);
+    }
+
+    [Fact]
+    public void The_alpha_worker_entries_keep_their_calls_and_add_a_start_entry_per_sub_agent()
+    {
+        var entries = ConversationText.Entries(SubAlphaWorker, Now);
+
+        Assert.Equal(
+        [
+            EntryKind.Header, EntryKind.Prompt,
+            EntryKind.CallSeparator, EntryKind.Thinking, EntryKind.AssistantText, EntryKind.ToolCall, EntryKind.SubAgent,
+            EntryKind.CallSeparator, EntryKind.Thinking, EntryKind.ToolCall, EntryKind.SubAgent, EntryKind.AssistantText,
+            EntryKind.Result,
+        ], entries.Select(e => e.Kind));
+        Assert.Equal(["[muted]call 1 · 12:00:10 · context 19.2k[/]"], entries[2].Lines);
+        Assert.Equal(["[muted]call 2 · 12:03:00 · context 43.3k[/]"], entries[7].Lines);
+        Assert.Equal(
+        [
+            "[error]✖[/] [accent]sub-agent[/] Check the public API surface of… · general-purpose · failed",
+            "[muted]API Error: 529 Overloaded. The sub-agent stopped before it finished.[/]",
+        ], entries[10].Lines);
+        Assert.Equal(SampleRun.AlphaSub2Id, entries[10].SelectsAgentId);
+        Assert.All(entries.Where(e => e.Kind != EntryKind.SubAgent), e => Assert.Null(e.SelectsAgentId));
+    }
+
+    [Fact]
+    public void A_sub_agent_start_entry_reads_name_type_state_and_the_reports_first_line()
+    {
+        var call = (ToolCall)SubAlphaWorker.Content.Items[3];
+        var sub = SubAlphaWorker.Content.SubAgents[0];
+
+        var entry = ConversationText.SubAgentStartEntry(SubAlphaWorker, call, sub);
+
+        Assert.Equal(EntryKind.SubAgent, entry.Kind);
+        Assert.Equal(
+        [
+            "[success]✔[/] [accent]sub-agent[/] Survey the parser module · Explore · succeeded",
+            "[muted]The parser module has 3 files.[/]",
+        ], entry.Lines);
+        Assert.Equal(SampleRun.AlphaSub1Id, entry.SelectsAgentId);
+        Assert.Equal("Agent Survey the parser module", entry.PopupTitle);
+        Assert.Equal(
+        [
+            new PopupSection("Input", call.InputJson, TextKind.Json),
+            new PopupSection("Result", "The parser module has 3 files."),
+        ], entry.Popup);
+        AssertSameEntry(entry, ConversationText.Entries(SubAlphaWorker, Now)[6]);
+    }
+
+    [Fact]
+    public void A_running_sub_agent_start_entry_has_no_report_line()
+    {
+        var entry = ConversationText.Entries(SubBetaWorker, Now).Single(e => e.Kind == EntryKind.SubAgent);
+
+        Assert.Equal(["[primary]▶[/] [accent]sub-agent[/] Survey CLI flags · Explore · running"], entry.Lines);
+        Assert.Equal(SampleRun.BetaSub1Id, entry.SelectsAgentId);
+        Assert.Equal(["Input"], entry.Popup.Select(p => p.Heading));
+    }
+
+    [Fact]
+    public void Sub_agent_entries_show_header_prompt_its_items_and_result()
+    {
+        var sub = SubAlphaWorker.Content.SubAgents[0];
+
+        var entries = ConversationText.SubAgentEntries(SubAlphaWorker, SampleRun.AlphaSub1Id, Now);
+
+        Assert.Equal(
+        [
+            EntryKind.Header, EntryKind.Prompt,
+            EntryKind.CallSeparator, EntryKind.ToolCall, EntryKind.ToolCall,
+            EntryKind.CallSeparator, EntryKind.AssistantText,
+            EntryKind.Result,
+        ], entries.Select(e => e.Kind));
+        Assert.Equal(
+        [
+            "[accent]sub-agent[/] alpha worker #1 › Survey the parser module",
+            "Explore · claude-haiku-4-5 · [success]✔ succeeded[/] · started 12:00:17 · 41s · 2 tool calls",
+        ], entries[0].Lines);
+        Assert.Equal(
+            [$"[accent]prompt[/] [muted]{sub.Prompt.Length} chars[/] List the files in src/Alpha and say what each one holds."],
+            entries[1].Lines);
+        Assert.Equal("Prompt", entries[1].PopupTitle);
+        Assert.Equal([new PopupSection("Prompt", sub.Prompt)], entries[1].Popup);
+        Assert.Equal(["[muted]call 1 · 12:00:19 · context 4.0k[/]"], entries[2].Lines);
+        Assert.Equal(["Glob src/Alpha/** [success]ok[/] 1s", "[muted]src/Alpha/Lexer.cs...[/]"], entries[3].Lines);
+        Assert.Equal(["Read src/Alpha/Parser.cs [success]ok[/] 1s", "[muted]namespace Alpha;...[/]"], entries[4].Lines);
+        Assert.Equal(["[muted]call 2 · 12:00:50 · context 5.4k[/]"], entries[5].Lines);
+        Assert.Equal(["The parser module has 3 files."], entries[6].Lines);
+        Assert.Equal(["[success]result succeeded[/] The parser module has 3 files."], entries[7].Lines);
+        Assert.Equal("Result", entries[7].PopupTitle);
+        Assert.Equal([new PopupSection("Report", "The parser module has 3 files.")], entries[7].Popup);
+
+        AssertSameEntry(entries[0], ConversationText.SubAgentHeader(SubAlphaWorker, sub, Now));
+        AssertSameEntry(entries[1], ConversationText.SubAgentPromptEntry(sub));
+        AssertSameEntry(entries[7], ConversationText.SubAgentResultEntry(SubAlphaWorker, sub));
+    }
+
+    [Fact]
+    public void Sub_agent_header_popup_lists_its_fields()
+    {
+        var header = ConversationText.SubAgentEntries(SubAlphaWorker, SampleRun.AlphaSub1Id, Now)[0];
+        var nested = ConversationText.SubAgentEntries(Planner, SampleRun.PlannerSub2Id, Now)[0];
+        var running = ConversationText.SubAgentEntries(SubBetaWorker, SampleRun.BetaSub1Id, Now)[0];
+
+        Assert.Equal("alpha worker #1 › Survey the parser module", header.PopupTitle);
+        Assert.Equal(
+        [
+            new PopupSection("Sub-agent",
+                """
+                Id: toolu_alpha_sub1
+                ToolCallId: toolu_alpha_sub1
+                Parent: agent
+                AgentType: Explore
+                Model: claude-haiku-4-5
+                Background: false
+                Description: Survey the parser module
+                StartedAt: 12:00:17
+                FinishedAt: 12:00:58
+                """.ReplaceLineEndings("\n")),
+        ], header.Popup);
+        Assert.Equal("planner #1 › Map the repo › Read the spec", nested.PopupTitle);
+        Assert.Contains("Parent: Map the repo\n", nested.Popup.Single().Text, StringComparison.Ordinal);
+        Assert.Contains("Background: true\n", running.Popup.Single().Text, StringComparison.Ordinal);
+        Assert.EndsWith("FinishedAt: none", running.Popup.Single().Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sub_agent_entries_number_the_calls_among_its_own()
+    {
+        var entries = ConversationText.SubAgentEntries(Planner, SampleRun.PlannerSub3Id, Now);
+
+        Assert.Equal(
+        [
+            "[accent]sub-agent[/] planner #1 › Survey the tests",
+            "explore · gpt-5.6-luna · [success]✔ succeeded[/] · started 11:59:39 · 12s · 1 tool call",
+        ], entries[0].Lines);
+        Assert.Equal(["[muted]call 1 · 11:59:40 · context 6.1k[/]"], entries[2].Lines);
+        Assert.Equal(["glob tests/**/*.cs [success]ok[/] 0s", "[muted]tests/Sample.Tests/SmokeTests.cs[/]"], entries[3].Lines);
+        Assert.Equal(["One test project, tests/Sample.Tests, with a single smoke test."], entries[4].Lines);
+        Assert.Equal(
+            ["[success]result succeeded[/] One test project, tests/Sample.Tests, with a single smoke test."],
+            entries[5].Lines);
+        Assert.Equal(6, entries.Length);
+    }
+
+    [Fact]
+    public void A_sub_agent_that_started_another_shows_its_start_entry()
+    {
+        var entries = ConversationText.SubAgentEntries(Planner, SampleRun.PlannerSub1Id, Now);
+
+        Assert.Equal(
+        [
+            EntryKind.Header, EntryKind.Prompt,
+            EntryKind.CallSeparator, EntryKind.SubAgent, EntryKind.ToolCall, EntryKind.AssistantText,
+            EntryKind.Result,
+        ], entries.Select(e => e.Kind));
+        Assert.Equal("[accent]sub-agent[/] planner #1 › Map the repo", entries[0].Lines[0]);
+        Assert.Equal(["[muted]call 1 · 11:59:08 · context 6.8k[/]"], entries[2].Lines);
+        Assert.Equal(
+        [
+            "[success]✔[/] [accent]sub-agent[/] Read the spec · explore · succeeded",
+            "[muted]The spec asks for five tasks: alpha, beta, gamma, delta and epsilon.[/]",
+        ], entries[3].Lines);
+        Assert.Equal(SampleRun.PlannerSub2Id, entries[3].SelectsAgentId);
+        Assert.Equal(["glob **/* [success]ok[/] 1s", "[muted]src/Sample/Sample.csproj...[/]"], entries[4].Lines);
+        Assert.Equal(["[success]result succeeded[/] Three folders: src, tests and docs."], entries[6].Lines);
+    }
+
+    [Fact]
+    public void A_running_sub_agent_has_no_result_entry()
+    {
+        var entries = ConversationText.SubAgentEntries(SubBetaWorker, SampleRun.BetaSub1Id, Now);
+
+        Assert.Equal(
+            [EntryKind.Header, EntryKind.Prompt, EntryKind.CallSeparator, EntryKind.ToolCall],
+            entries.Select(e => e.Kind));
+        Assert.Equal(
+        [
+            "[accent]sub-agent[/] beta worker #1 › Survey CLI flags",
+            "Explore · claude-haiku-4-5 · [primary]▶ running[/] · started 12:29:10 · 50s · 1 tool call",
+        ], entries[0].Lines);
+        Assert.Equal(["[muted]call 1 · 12:29:12 · context 3.6k[/]"], entries[2].Lines);
+        Assert.Equal(["Read src/Beta/Program.cs [primary]running[/]"], entries[3].Lines);
+    }
+
+    [Fact]
+    public void A_failed_sub_agent_result_shows_its_report_in_the_error_colour()
+    {
+        var entries = ConversationText.SubAgentEntries(SubAlphaWorker, SampleRun.AlphaSub2Id, Now);
+
+        Assert.Equal(
+            "general-purpose · claude-sonnet-4-5 · [error]✖ failed[/] · started 12:03:06 · 44s · 1 tool call",
+            entries[0].Lines[1]);
+        Assert.Equal(
+            ["[error]result failed[/] API Error: 529 Overloaded. The sub-agent stopped before it finished."],
+            entries[^1].Lines);
+    }
+
+    [Fact]
+    public void An_unknown_sub_agent_id_gives_the_sessions_entries()
+    {
+        Assert.Equal(
+            ConversationText.Entries(SubAlphaWorker, Now).Select(e => e.Lines),
+            ConversationText.SubAgentEntries(SubAlphaWorker, "toolu_unknown", Now).Select(e => e.Lines));
+    }
+
+    [Fact]
+    public void Sub_agent_header_shows_dashes_for_unknown_fields()
+    {
+        var sub = SubAlphaWorker.Content.SubAgents[0] with
+        {
+            ToolCallId = "", AgentType = null, Model = null, StartedAt = null, Description = null,
+        };
+        var session = SubAlphaWorker with { Content = SubAlphaWorker.Content with { SubAgents = [sub] } };
+
+        var header = ConversationText.SubAgentHeader(session, sub, Now);
+
+        Assert.Equal("- · - · [success]✔ succeeded[/] · started - · - · 2 tool calls", header.Lines[1]);
+        Assert.Contains("ToolCallId: none\n", header.Popup.Single().Text, StringComparison.Ordinal);
+        Assert.Contains("Description: none\n", header.Popup.Single().Text, StringComparison.Ordinal);
+        Assert.Contains("StartedAt: none\n", header.Popup.Single().Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sub_agent_text_is_escaped()
+    {
+        var sub = SubAlphaWorker.Content.SubAgents[0] with { Name = "a[1]", AgentType = "[x]", Report = "[/]" };
+        var session = SubAlphaWorker with { Content = SubAlphaWorker.Content with { SubAgents = [sub] } };
+        var call = (ToolCall)session.Content.Items[3];
+
+        Assert.Equal(["[success]✔[/] [accent]sub-agent[/] a[[1]] · [[x]] · succeeded", "[muted][[/]][/]"],
+            ConversationText.SubAgentStartEntry(session, call, sub).Lines);
+        Assert.Equal("[accent]sub-agent[/] alpha worker #1 › a[[1]]", ConversationText.SubAgentHeader(session, sub, Now).Lines[0]);
+        Assert.Equal(["[success]result succeeded[/] [[/]]"], ConversationText.SubAgentResultEntry(session, sub).Lines);
+    }
+
+    [Fact]
+    public void No_sub_agent_entry_is_longer_than_three_lines()
+    {
+        foreach (var session in _subRun.Sessions)
+        {
+            var entries = ConversationText.Entries(session, Now)
+                .Concat(session.Content.SubAgents.SelectMany(sub => ConversationText.SubAgentEntries(session, sub.Id, Now)));
+            foreach (var entry in entries)
+                Assert.InRange(entry.Lines.Length, 1, 3);
+        }
+    }
+
+    // Records compare their ImmutableArray members by reference, so the members are compared one by one.
+    private static void AssertSameEntry(ConversationEntry expected, ConversationEntry actual)
+    {
+        Assert.Equal(expected.Kind, actual.Kind);
+        Assert.Equal(expected.Lines, actual.Lines);
+        Assert.Equal(expected.PopupTitle, actual.PopupTitle);
+        Assert.Equal(expected.Popup, actual.Popup);
+        Assert.Equal(expected.SelectsAgentId, actual.SelectsAgentId);
     }
 
     private static Session WithFiles(Session session, string key, string? taskId, AgentRole role) =>
