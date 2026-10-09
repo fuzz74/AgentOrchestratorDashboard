@@ -3,7 +3,7 @@ using OrchDash.Core.Model;
 
 namespace OrchDash.Core.Replay;
 
-/// <summary>The sessions at a replay time by the session cut table (spec 30.3, 30.6).</summary>
+/// <summary>The sessions at a replay time by the session cut table and the sub-agent cut (spec 30.3, 30.6, 38.1).</summary>
 internal static class SessionCut
 {
     /// <summary>
@@ -81,21 +81,33 @@ internal static class SessionCut
             Later(ref latestKept, call.StartedAt ?? start);
         var callsCut = keptCalls.Length < calls.Length;
 
+        // 38.1: the sub-agents started up to the time (an unknown start counts as the session's); one that finishes
+        // later runs again.
+        var subAgents = OrEmpty(content.SubAgents);
+        var keptSubAgents = ImmutableArray.CreateBuilder<SubAgent>(subAgents.Length);
+        foreach (var subAgent in subAgents)
+        {
+            if ((subAgent.StartedAt ?? start) > at)
+                continue;
+            keptSubAgents.Add(subAgent.FinishedAt > at
+                ? subAgent with { State = SessionState.Running, FinishedAt = null, Report = null }
+                : subAgent);
+        }
+        var subAgentsCut = keptSubAgents.Count < subAgents.Length
+            || keptSubAgents.Zip(subAgents).Any(pair => !ReferenceEquals(pair.First, pair.Second));
+
         // A last event after the time cuts the result, the checkpoint, the result file and the last event itself.
         var endCut = lastEvent > at;
         var rateLimitCut = content.RateLimit?.SeenAt > at;
 
-        var storeCalls = OrEmpty(session.Stores.Calls);
-        var keptStoreCalls = storeCalls.Where(entry => !(entry.Time > at)).ToImmutableArray();
-        var injected = OrEmpty(session.Stores.Injected);
-        var keptInjected = injected.Where(entry => !(entry.Time > at)).ToImmutableArray();
-        var storesCut = keptStoreCalls.Length < storeCalls.Length || keptInjected.Length < injected.Length;
+        var stores = CutStores(session.Stores, at);
+        var storesCut = !ReferenceEquals(stores, session.Stores);
 
-        if (!itemsCut && !callsCut && !endCut && !rateLimitCut && !storesCut)
+        if (!itemsCut && !callsCut && !subAgentsCut && !endCut && !rateLimitCut && !storesCut)
             return session;
 
         var cut = session;
-        if (itemsCut || callsCut || endCut || rateLimitCut)
+        if (itemsCut || callsCut || subAgentsCut || endCut || rateLimitCut)
         {
             cut = cut with
             {
@@ -103,6 +115,7 @@ internal static class SessionCut
                 {
                     Items = itemsCut ? keptItems.ToImmutable() : content.Items,
                     Calls = callsCut ? keptCalls : content.Calls,
+                    SubAgents = subAgentsCut ? keptSubAgents.ToImmutable() : content.SubAgents,
                     Result = endCut ? null : content.Result,
                     Checkpoint = endCut ? null : content.Checkpoint,
                     LastEventAt = endCut ? latestKept : lastEvent,
@@ -113,8 +126,38 @@ internal static class SessionCut
         if (endCut && session.Files.HasResultFile)
             cut = cut with { Files = session.Files with { HasResultFile = false } };
         if (storesCut)
-            cut = cut with { Stores = session.Stores with { Calls = keptStoreCalls, Injected = keptInjected } };
+            cut = cut with { Stores = stores };
         return cut;
+    }
+
+    // The store calls and injected items up to the time or without one, here and in each sub-agent's store data
+    // (38.1); the same instance while nothing is cut, and the same SubAgents dictionary while no value of it is.
+    private static StoreData CutStores(StoreData stores, DateTimeOffset at)
+    {
+        var calls = OrEmpty(stores.Calls);
+        var keptCalls = calls.Where(entry => !(entry.Time > at)).ToImmutableArray();
+        var injected = OrEmpty(stores.Injected);
+        var keptInjected = injected.Where(entry => !(entry.Time > at)).ToImmutableArray();
+
+        var subAgents = stores.SubAgents;
+        foreach (var (id, data) in stores.SubAgents)
+        {
+            var keptData = CutStores(data, at);
+            if (!ReferenceEquals(keptData, data))
+                subAgents = subAgents.SetItem(id, keptData);
+        }
+
+        var callsCut = keptCalls.Length < calls.Length;
+        var injectedCut = keptInjected.Length < injected.Length;
+        if (!callsCut && !injectedCut && ReferenceEquals(subAgents, stores.SubAgents))
+            return stores;
+
+        return stores with
+        {
+            Calls = callsCut ? keptCalls : stores.Calls,
+            Injected = injectedCut ? keptInjected : stores.Injected,
+            SubAgents = subAgents,
+        };
     }
 
     // Part 1's session state rules (RunStore.StateOf) on the cut content and files.
