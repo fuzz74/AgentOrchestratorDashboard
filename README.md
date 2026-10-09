@@ -11,6 +11,9 @@ against the integration branch (Git page), the PID, uptime, CPU and memory of ev
 page), and the output of every setup, acceptance and integration command (Commands page). The Timeline page merges
 the events of all agents and of the orchestrator's own log into one list, one line per event. Eight pages in all.
 
+Workers and the planner can start sub-agents. Every page that shows tasks or sessions shows them too: as child rows
+under their task or session, or as a path such as `alpha worker #1 › Survey billing module` (see "Sub-agents").
+
 Replay shows the whole dashboard as the run was at a chosen time: the time bar under the header moves that time with
 the arrow keys or a click, and every page shows the run at it. The run picker (`r`) lists the repo's current run and its
 archived runs under `<repo>.runs` and switches the dashboard to one. It works for finished runs and live ones; changes
@@ -87,6 +90,7 @@ task: `pid <pid> · <role> · started <time> · cpu <n %> · mem <bytes>` and it
 | Tab, Shift+Tab | Move to the next or previous panel |
 | Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused panel |
 | Enter or a click | Run panel: every run and plan value. Task: its state, plan, prompt, summary, notes, error, feedback and sessions. Log entry: the whole message |
+| Enter or a click on a sub-agent's child row in the task table | Open that sub-agent on the Conversation page |
 | Enter or a click on a running session | Open that session on the Conversation page |
 | End (log) | Follow the newest log entry again |
 
@@ -94,11 +98,12 @@ task: `pid <pid> · <role> · started <time> · cpu <n %> · mem <bytes>` and it
 
 | Key | Action |
 | --- | --- |
-| Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused list |
+| Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused list; in the session list a sub-agent's child row selects that sub-agent |
 | Tab, Shift+Tab | Switch between the session list and the entries |
-| Enter on a session | Move the focus to its entries |
-| Enter or a click on an entry | Open the full data: the session's files, init and result; the whole prompt or text; a tool call's input, result and diff; the result's text, structured output and review issues |
-| End (entries) | Select the newest entry and follow a running session again |
+| Enter on a session or a sub-agent | Move the focus to its entries |
+| Enter or a click on an entry | Open the full data: the session's files, init and result; the whole prompt or text; a tool call's input, result and diff; the result's text, structured output and review issues; a sub-agent's header, prompt and report |
+| Enter or a click on a `sub-agent` entry | Select the sub-agent that call started and move the focus to its entries |
+| End (entries) | Select the newest entry and follow a running session or sub-agent again |
 
 **Context page**: what the selected session's context window holds at each model call. The session list (with each
 session's latest context size), a header (provider, role, task, model, calls, peak, the selected call's context and
@@ -112,14 +117,14 @@ parts by their characters.
 | --- | --- |
 | Up, Down, PageUp, PageDown, Home, wheel | Move the selection in the focused list |
 | Tab, Shift+Tab | Move the focus between the session list, the call list and the part list |
-| Enter on a session, or a click | Select the session; Enter moves the focus to its calls |
+| Enter on a session or a sub-agent, or a click | Select it; Enter moves the focus to its calls |
 | Enter on a call, or a click | Select the call; Enter moves the focus to its parts |
-| End (calls) or a click on the last call | Select the newest call and follow a running session's new calls again |
+| End (calls) or a click on the last call | Select the newest call and follow a running session's or sub-agent's new calls again |
 | Enter or a click on a part | Open the part: its text, a tool definition's description and schema, a tool call's input and result |
 | A click on a segment of the make-up bar | Show the category's tokens and share in a tip; a mouse move, a key or a click elsewhere removes it |
 | A click on a category line of the make-up | Explain the category: what it is, how it gets into the context, why it matters and how this page measures it |
-| `s` | Open the system prompt, one section per block |
-| `t` | Open the tool definitions: name, description and schema of each tool |
+| `s` | Open the system prompt, one section per block; for a sub-agent the one in its transcript |
+| `t` | Open the tool definitions: name, description and schema of each tool; for a sub-agent the ones in its transcript |
 
 **Usage page**: the run panel (sessions, calls, input, cache read, cache write, output, thinking, cost, premium
 requests, AIU and lines changed over the whole run), the latest rate limits, the CLI versions, the group table
@@ -128,10 +133,11 @@ figure that no session knows shows as `-`.
 
 | Key | Action |
 | --- | --- |
-| Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused table; in the session table this also selects the session on the other pages |
+| Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused table; in the session table this also selects the session or sub-agent on the other pages |
 | Tab, Shift+Tab | Switch between the group table and the session table |
 | Enter on a group, or a click | Select the group; Enter moves the focus to its sessions |
-| Enter or a click on a session | Open `Usage: <group> <role> #<attempt>`: the session's totals, one line per model call and the reasons for missing data |
+| Enter or a click on a session | Open `Usage: <group> <role> #<attempt>`: the session's totals, one line per model call of its own, one `Sub-agent <name>` section per sub-agent with its calls, and the reasons for missing data |
+| Enter or a click on a sub-agent's child row | Open `Usage: <path>`, for example `Usage: alpha worker #1 › Survey the parser module`: the sub-agent's totals and one line per model call |
 
 **Graph page**: one column per wave (`W1`, `W2`, ...) with one card per task: its status icon and id. The selected task
 is marked `●`, its direct and indirect dependencies `◂` and its dependents `▸`; lines connect it to its direct
@@ -141,10 +147,11 @@ its number of sessions.
 
 | Key | Action |
 | --- | --- |
-| Up, Down | Select the previous or next card in the same column |
+| Up, Down | Select the previous or next card in the same column, past the sub-agent lines |
 | Tab, Shift+Tab | Select the nearest card in the next or previous column (after the last comes the first) |
 | A click on a card | Select it |
 | Enter or a click on the selected card | Open the task pop-up, as on the Overview page |
+| A click on a sub-agent line under a card | Open that sub-agent on the Conversation page |
 | `c` | Open the task's last session on the Conversation page |
 | Wheel | Scroll |
 
@@ -179,19 +186,22 @@ outcome with its exit code, the log's path under `logs/` and its size, then its 
 
 **Timeline page**: a filter row, `[o] orchestrator  [a] calls  [u] tools  [x] text  [e] prompt/result  task: all  ▶
 replay here` (active kinds in the accent colour, hidden ones muted), and below it one row per event, oldest first:
-time, source (`orchestrator`, or `<task> <role> <attempt>` such as `alpha worker #1`), kind (`orch`, `prompt`, `call`,
-`tool`, `text`, `result`) and text. The events are the orchestrator's progress entries (without the activity lines),
-and for every session its prompt, its model calls, its tool calls, its texts and its result. `No events yet` while there
-is none.
+time, source (`orchestrator`, or `<task> <role> <attempt>` such as `alpha worker #1`, followed by ` › <name>` for a
+sub-agent's event), kind (`orch`, `prompt`, `call`, `tool`, `text`, `result`) and text. The events are the
+orchestrator's progress entries (without the activity lines), and for every session its prompt, its model calls, its
+tool calls, its texts and its result, and the start, calls, tool calls, texts and end of each of its sub-agents. While
+the run has sub-agents, the filter row shows `[s] sub-agents` after `[e] prompt/result`. `No events yet` while there is
+none.
 
 | Key | Action |
 | --- | --- |
 | `o`, `a`, `u`, `x`, `e` or a click on the label | Show or hide orchestrator entries, model calls, tool calls, texts, or prompts and results |
+| `s` or a click on `[s] sub-agents` | Show or hide every event of a sub-agent (only while the run has sub-agents) |
 | `f` or a click on `task:` | Task filter: only the selected event's task and the `run` events (`task: <task>`), or all again (`task: all`) |
 | Up, Down, PageUp, PageDown, Home, wheel | Move the selection; Up stops following |
 | End or a click on the last row | Select the last row and follow new events while the run is active |
 | Enter or a click on the selected row | Open the event: the log entry, the prompt, the call's figures, the tool call's input, result and diff, the text, or the result |
-| `c` | Open the event's session on the Conversation page (for a task's orchestrator entry: the task's last session) |
+| `c` | Open the event's session on the Conversation page (for a sub-agent's event: that sub-agent; for a task's orchestrator entry: the task's last session) |
 | `t` or a click on `▶ replay here` | Replay at the selected event's time |
 
 ## Replay
@@ -206,9 +216,11 @@ failed. `no events yet` stands in for the bar while the run has no events.
 While replaying, every page shows the run at that time, rebuilt from the live data by one pure function: the progress
 log cut at the time, the run info (phase, start, finish) and the task states, attempts, details, costs, summaries and
 feedback rebuilt from it; the sessions that had started, with their tool calls, texts, model calls and results cut at
-the time and their state derived again; and the command logs written by then. Git stays live, which the state text marks
-with `git live`; the process list is empty. New data from the live run keeps arriving underneath, and Escape returns to
-it. Switching runs ends replay.
+the time and their state derived again; their sub-agents that had started by then, cut the same way, where one that
+finished later shows as running, without its finish and report (as aborted when its session was no longer running at
+that time); and the command logs written by then. Git stays live, which the state text marks with `git live`; the
+process list is empty. New data from the live run keeps arriving underneath, and Escape returns to it. Switching runs
+ends replay.
 
 ## Run picker
 
@@ -232,20 +244,83 @@ A switch runs in the background: the dashboard keeps showing the old run, with `
 the new run's first read is done; then the old run's reader stops. When the new run cannot be opened, the old one stays
 and the time bar shows why.
 
+## Sub-agents
+
+A worker or the planner can hand part of its work to a sub-agent: Claude Code starts one with its `Agent` (or `Task`)
+tool, Copilot CLI with its `task` tool. A sub-agent runs inside its agent's process, and its events go into the agent's
+own `events.jsonl`, marked with the id of the tool call that started it (Claude's `parent_tool_use_id`) or with its
+own id (Copilot's `agentId`). OrchDash keeps each sub-agent's model calls, tool calls, texts, state and report apart
+from its agent's: a sub-agent's answer never becomes the agent's result, its calls are not part of the agent's context
+chain, and a Claude session that waits for its background sub-agents shows no result until its last `result` event. A
+sub-agent runs until its end event (Claude's `task_notification`, Copilot's `subagent.completed` or `subagent.failed`)
+or, in the foreground, until the tool call that started it returns; it has then succeeded or failed, and its report is
+the final answer it handed back. One that still runs when its session has ended is aborted. Its name is its
+description, cut to 32 characters (`Check the public API surface of…`). Copilot sub-agents can start sub-agents of their
+own; Claude's cannot.
+
+Where a page lists tasks or sessions, the sub-agents show as child rows below them, drawn as a tree (`├`, `└`, `│`)
+with the icon of their state (`▶` running, `✔` succeeded, `✖` failed, `◌` aborted) and their name, in the state's
+colour. In flat lists a sub-agent shows as a path: its session's `<task> <role> <attempt>`, then ` › <name>` for each
+sub-agent down to it, such as `alpha worker #1 › Survey billing module` or `planner #1 › Map the repo › Read the spec`.
+
+- **Overview.** Under each task row, one child row per sub-agent of the task's sessions, starting at the id column:
+  `├✔ Survey the parser module · worker #1 · 2 tool calls · 41s` (its session's role and attempt, its own tool calls
+  and how long it ran). A running session's block takes its tool-call count, its context line and its last 5 items from
+  the agent's own events, and ends with one line per sub-agent, `└▶ Survey CLI flags · 1 tool call · context 3.6k`,
+  then, while it runs, its latest item. A log entry of a sub-agent (one the orchestrator wrote as
+  `↳ [<name>] <message>`) reads `11:59:30 [planner › Map the repo] Glob **/*`, and its pop-up's heading shows the same
+  path. The task pop-up's `Sessions` section lists each session's sub-agents below it, with type, state and model:
+  `├ Survey the parser module · Explore · Succeeded · claude-haiku-4-5`.
+- **Graph.** Under each card, one line per sub-agent of the task's sessions, `├✔ Survey the parser m…` (a name longer
+  than 20 characters is cut to 19 and `…`). The column widens to fit these lines, and the lines between tasks still end
+  at the cards. The `Task` panel's last line reads `sessions: <n> · sub-agents: <m> (<k> running)`.
+- **Conversation.** The session list shows the child rows below each session, with type, model, how long it ran and
+  its own tool calls: `├✔ Survey the parser module · Explore · claude-haiku-4-5 · 41s · 2 tool calls`. A session's
+  entries, its `call N` separators and its tool-call count are the agent's own; the tool call that started a sub-agent
+  reads `✔ sub-agent Survey the parser module · Explore · succeeded`, with the first line of its report below. A
+  selected sub-agent shows its own entries: a header, `sub-agent alpha worker #1 › Survey the parser module` over
+  `Explore · claude-haiku-4-5 · ✔ succeeded · started 12:00:17 · 41s · 2 tool calls`, whose pop-up section `Sub-agent`
+  lists its id, tool call id, parent, type, model, background, description, start and finish; its `prompt`; its own
+  items, with `call N` counting its own calls and a `sub-agent` entry for each sub-agent it started; and, once it has
+  finished, `result <state>` with the start of its report.
+- **Context.** The session list shows the child rows with the context of each sub-agent's latest call,
+  `├✔ Survey the parser module 5.4k`. A session's calls, chart, peak, steps and make-up count only the agent's own
+  calls and items, across its chain. A selected sub-agent shows its own calls (no chain) under the header
+  `Claude · sub-agent · alpha worker #1 › Survey the parser module · claude-haiku-4-5 · 2 calls · peak 5.4k`, then the
+  selected call's `context <size> of <limit>`, where the limit, when known, is the largest context window that a session
+  of the run with the same model reported. Its make-up takes the system prompt, the tool definitions and the injected
+  text from its sub-agent transcript (Claude only; without one it has none), the part `prompt` is its prompt from its
+  first call on, and the conversation is its items.
+- **Usage.** The session table lists each session's sub-agents below it: `├✔ Survey the parser module` across the role
+  and attempt columns, then the sub-agent's model, calls, peak, input, cache read, cache write, output and AIU; cost and
+  lines are `-`. A session row still counts its sub-agents' calls, but its peak is that of its own calls. The run panel
+  adds `sub-agents <n>`; the group table adds a last column `Sub`, `<n> · <share>` (the group's sub-agents and their
+  share of its tokens, `-` for a group without any), which shows in full from about 172 columns; and the chart
+  `Tokens per group` adds a bar `└ sub-agents` under each group that has them.
+- **Timeline.** A sub-agent's events have its path as their source. Its calls, tool calls and texts are `call`, `tool`
+  and `text` rows, with `call N` counting its own calls; its start is a `prompt` row,
+  `sub-agent started · Explore · <n> chars`, and its end a `result` row, `result succeeded · <its report's first line>`
+  in its state's colour. An orchestrator entry of a sub-agent reads `[planner › Map the repo] <message>`. The task
+  filter keeps a sub-agent's events with its session's task, and `[s] sub-agents` shows or hides them all.
+
+The Conversation, Context and Usage pages share the selection: a sub-agent selected on one is selected on the others.
+A run without sub-agents looks as before: no child rows, paths, `sub-agents` lines, `Sub` column or `[s]` toggle.
+
 ## What it reads
 
 Everything under `<repo>/.orchestrator/`:
 
 - `tasks.json`: the plan (spec, branches, settings) and the tasks with their dependencies.
 - `state.json`: each task's status, attempts, cost, summary, notes, error and feedback.
-- `progress.md`: the progress log, which also gives the run's start, finish, provider and max parallel.
+- `progress.md`: the progress log, which also gives the run's start, finish, provider and max parallel. An entry whose
+  message starts with `↳ [<name>] ` comes from the sub-agent `<name>` of the entry's source.
 - `run.lock` and `stop-requested`: whether the run is still active and whether a stop was requested.
 - `logs/`: one session per agent run, with `X.json` (the result), `X.json.prompt.md` (the prompt),
-  `X.json.events.jsonl` (the event log, read as it grows) and `X.json.stderr`, plus the setup, acceptance and
-  integration command logs (`<task>/<start>/setup.log`, `<task>/<start>/attempt-<n>-acceptance.log`,
-  `<task>-integration-setup.log`, `<task>-integration-check.log`, `bootstrap-<start>/attempt-<n>-setup.log` and
-  `bootstrap-<start>/attempt-<n>-integration-check.log`, each with its `.stderr`), listed every poll and read again only
-  when they changed.
+  `X.json.events.jsonl` (the event log, read as it grows, which holds the events of the agent's sub-agents too) and
+  `X.json.stderr`, plus the setup, acceptance and integration command logs (`<task>/<start>/setup.log`,
+  `<task>/<start>/attempt-<n>-acceptance.log`, `<task>-integration-setup.log`, `<task>-integration-check.log`,
+  `bootstrap-<start>/attempt-<n>-setup.log` and `bootstrap-<start>/attempt-<n>-integration-check.log`, each with its
+  `.stderr`), listed every poll and read again only when they changed.
 
 Every read that finds a change publishes a new snapshot of the run; the UI takes each new snapshot instance it finds on
 its next tick (not only one with a higher version number), so a switch to another run, whose versions start again,
@@ -256,16 +331,23 @@ And, by each session's id, three stores the CLIs keep in the user profile folder
 
 - The Claude Code transcript, `%USERPROFILE%\.claude\projects\<folder>\<sessionId>.jsonl`: the system prompt, the
   tool definitions, the text injected into the context, the exact output and thinking tokens and stop reason per call,
-  and the session's cost and lines changed.
+  and the session's cost and lines changed. The same for each sub-agent comes from its own transcript,
+  `%USERPROFILE%\.claude\projects\<folder>\<sessionId>\subagents\agent-<x>.jsonl`, whose `agent-<x>.meta.json` names
+  in `toolUseId` the tool call that started it; a transcript without a readable meta file is skipped, and each one is
+  read again only when its length or last write time changed.
 - The Copilot session folder, `%USERPROFILE%\.copilot\session-state\<sessionId>\`: the system prompt and CLI version
-  from `events.jsonl`, and from `workspace.yaml` the id of a session that is still running.
+  from `events.jsonl` (a `system.message` with an `agentId` is a sub-agent's and is skipped), and from `workspace.yaml`
+  the id of a session that is still running.
 - The Copilot database, `%USERPROFILE%\.copilot\session-store.db`: the tokens, AIU, duration and finish reason of every
-  model call.
+  model call. The columns `agent_id` and `parent_tool_call_id` of `assistant_usage_events` tell which agent a row
+  belongs to: the sub-agent with that `agent_id`, else the sub-agent started by the tool call `parent_tool_call_id`,
+  else, when both are empty, the agent itself. A row of a sub-agent that the event log does not know is left out, and
+  each agent's rows match its own calls in order.
 
 The stores are internal formats of the CLIs, so all three are optional. What is missing shows as `unavailable` with a
 reason (`session id not known yet`, `no transcript`, `no session folder`, `no database rows`) on the Context page and
-in the Usage page's session pop-up, and as `-` in the figures; the rest of the dashboard works as before. A database
-that cannot be found or read adds a line to Problems.
+in the Usage page's session pop-up, and as `-` in the figures, a sub-agent's too; the rest of the dashboard works as
+before. A database that cannot be found or read adds a line to Problems.
 
 Git, read-only, on its own thread at most every 5 seconds, so a slow `git status` never delays the dashboard. Every
 command is `git --no-optional-locks -C <folder> ...`, so git takes no lock and does not refresh the index:
@@ -294,15 +376,15 @@ versions line shows that provider in the warning colour.
 
 OrchDash never creates, changes, deletes or renames a file or folder. It opens files only for reading, with
 `FileShare.ReadWrite | FileShare.Delete` so that the orchestrator and the CLIs can keep writing them; that holds for
-the run picker's reads of the archived runs too. It starts no
+the run picker's reads of the archived runs and for the sub-agent transcripts and their meta files too. It starts no
 process except `git`, and that only with the subcommands and arguments listed under "What it reads", each with
 `--no-optional-locks`; it runs no WMI operation other than the one process query; and it uses no network. It cannot
 stop a run.
 
 The one exception is the Copilot database: OrchDash opens it read-only through SQLite
-(`Mode=ReadOnly;Pooling=False;Default Timeout=1`) and runs only two `SELECT` statements, but SQLite itself may create or
-update `session-store.db-shm` and `session-store.db-wal` next to it, as it does for every reader of a database in WAL
-mode.
+(`Mode=ReadOnly;Pooling=False;Default Timeout=1`) and runs only two `SELECT` statements (the schema version, and the
+usage rows with their `agent_id` and `parent_tool_call_id`), but SQLite itself may create or update
+`session-store.db-shm` and `session-store.db-wal` next to it, as it does for every reader of a database in WAL mode.
 
 ## Setup and tests
 
@@ -335,6 +417,14 @@ page and pop-up as an SVG in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/`, f
 `shell-timebar.svg`, `shell-replay.svg` and `shell-runs.svg`. The run host's tests switch between copies of the two
 fixture runs laid out as a repo and an archived run in a temp folder.
 
+The page tests for sub-agents run on a sample run whose alpha and beta workers and planner have sub-agents, and save
+`overview-subagents.svg`, `graph-subagents.svg`, `conversation-subagent.svg`, `context-subagent.svg`,
+`usage-subagents.svg` and `timeline-subagents.svg`. The parsers and stores are tested on synthetic event lines, temp
+sub-agent transcripts and temp databases with `agent_id` rows. An end-to-end test runs the app on a temp repo with a
+Claude worker and a Copilot planner that start sub-agents, a Claude sub-agent transcript and a Copilot database with
+`agent_id` rows, and saves `app-subagents-overview.svg`, `app-subagents-graph.svg`, `app-subagents-conversation.svg`,
+`app-subagents-context.svg`, `app-subagents-usage.svg` and `app-subagents-timeline.svg`.
+
 ## Manual checks
 
 1. `dotnet run --project src/OrchDash -- C:\Data\AI\TextKit` (a Copilot run) and
@@ -361,5 +451,9 @@ fixture runs laid out as a repo and an archived run in a temp folder.
 6. `dotnet run --project src/OrchDash -- C:\Data\AI\TextKit`: replay through `count`'s syncs (Running with mode `sync`,
    then `resolver (attempt 1)`, then Done with 2 sync runs).
 7. One live run: step back while agents run, and return to live with Escape; the dashboard then shows the newest state.
-8. Open the SVG files in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/` after a test run and look at each page and
+8. One Claude run and one Copilot run in which workers and the planner use sub-agents: every page shows the child rows
+   or paths; Copilot sub-agent calls get database figures (so `agent_id` equals the event log's `agentId`); Claude
+   sub-agent calls get transcript figures from `<sessionId>\subagents\`; a background Claude sub-agent finishes on its
+   `task_notification`. `C:\Data\AI\TextKit`, `C:\Data\AI\AnsiDemo` and the archived runs look as before.
+9. Open the SVG files in `tests/OrchDash.Tests/bin/Debug/net10.0/frames/` after a test run and look at each page and
    pop-up.
