@@ -9,4 +9,8 @@ public sealed record ConversationEntry(
     EntryKind Kind,
     ImmutableArray<string> Lines,
     string PopupTitle,
-    ImmutableArray<PopupSection> Popup);
+    ImmutableArray<PopupSection> Popup)
+{
+    // The id of the sub-agent that this entry started (41.3): Enter or a click selects it instead of opening the pop-up.
+    public string? SelectsAgentId { get; init; }
+}

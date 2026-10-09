@@ -5,7 +5,8 @@ using OrchDash.Core.Model;
 
 namespace OrchDash.Pages.Conversation.Format;
 
-// The header's pop-up (8.6): every SessionFiles, SessionInit and SessionResult value as "name: value".
+// The header's pop-up (8.6): every SessionFiles, SessionInit and SessionResult value as "name: value"; a sub-agent's
+// fields for the sub-agent header (41.4).
 internal static class HeaderPopup
 {
     private const string None = "none";
@@ -20,6 +21,21 @@ internal static class HeaderPopup
             sections.Add(new PopupSection("Result", Result(result)));
         return sections.ToImmutable();
     }
+
+    // The sub-agent header's pop-up (41.4). Parent is the parent's Name, or "agent" when the agent's own call started it.
+    public static ImmutableArray<PopupSection> SubAgentSections(Session session, SubAgent sub) =>
+    [
+        new PopupSection("Sub-agent", Join(
+            ("Id", sub.Id),
+            ("ToolCallId", sub.ToolCallId.Length > 0 ? sub.ToolCallId : null),
+            ("Parent", SubAgents.Find(session.Content, sub.ParentId)?.Name ?? "agent"),
+            ("AgentType", sub.AgentType),
+            ("Model", sub.Model),
+            ("Background", Bool(sub.Background)),
+            ("Description", sub.Description),
+            ("StartedAt", sub.StartedAt is { } started ? Look.Clock(started) : null),
+            ("FinishedAt", sub.FinishedAt is { } finished ? Look.Clock(finished) : null))),
+    ];
 
     private static string Files(SessionFiles f) => Join(
         ("Key", f.Key),
