@@ -13,7 +13,7 @@ internal static class UsageQueries
 
     private const string RowsSql =
         "SELECT session_id, created_at, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, " +
-        "reasoning_tokens, total_nano_aiu, duration_ms, finish_reason " +
+        "reasoning_tokens, total_nano_aiu, duration_ms, finish_reason, agent_id, parent_tool_call_id " +
         "FROM assistant_usage_events WHERE session_id IN ({0}) ORDER BY id;";
 
     // 13.6: a failing schema version query gives null.
@@ -64,6 +64,7 @@ internal static class UsageQueries
     }
 
     // Copilot's input_tokens is the whole prompt including the cached part; NULL counts as 0 except for the output.
+    // agent_id and parent_tool_call_id tell a sub-agent's rows apart (36.2).
     private static CallFigures Map(SqliteDataReader reader)
     {
         long input = Int64(reader, 2) ?? 0;
@@ -79,11 +80,18 @@ internal static class UsageQueries
             ThinkingTokens: Int64(reader, 6),
             NanoAiu: Int64(reader, 7),
             Duration: duration is null ? null : TimeSpan.FromMilliseconds(duration.Value),
-            StopReason: reader.IsDBNull(9) ? null : reader.GetString(9));
+            StopReason: Text(reader, 9))
+        {
+            AgentId = Text(reader, 10),
+            ParentToolCallId = Text(reader, 11),
+        };
     }
 
     private static long? Int64(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetInt64(ordinal);
+
+    private static string? Text(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
 
     // created_at is UTC, as "2026-10-03T09:34:53.034Z" or as SQLite's "2026-10-03 09:34:53".
     private static DateTimeOffset? ParseTime(string text) =>

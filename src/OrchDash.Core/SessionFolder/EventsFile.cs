@@ -102,7 +102,8 @@ internal sealed class EventsFile
                 case "session.start":
                     _cliVersion = String(data, "copilotVersion") ?? _cliVersion;
                     break;
-                case "system.message":
+                // 36.6: a sub-agent's system message is not the session's system prompt.
+                case "system.message" when string.IsNullOrEmpty(String(root, "agentId")):
                     _systemPrompt = SystemPrompt(data);
                     break;
             }
