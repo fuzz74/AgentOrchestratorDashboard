@@ -390,6 +390,108 @@ public sealed class OverviewPageTests
         AssertTaskPopup(host, "beta - Beta checker", "Status", "Plan", "Prompt", "Sessions");
     }
 
+    private static string SubAgentKey(RunSnapshot snapshot, string sessionKey, string agentId) =>
+        AgentKey.Of(snapshot.Sessions.Single(s => s.Files.Key == sessionKey), agentId);
+
+    [Fact]
+    public void The_task_table_shows_the_child_rows_the_running_block_its_sub_agents_and_the_log_their_paths()
+    {
+        using var host = UiTestHost.Start(Pages(), SampleRun.CreateSubAgents());
+        var frame = host.Frame();
+        var lines = Lines(host);
+
+        // 39.1: under its task, starting at the id column.
+        var alpha = RowOf(host, "✔  alpha ");
+        Assert.Contains("├✔ Survey the parser module · worker #1 · 2 tool calls · 41s", lines[alpha + 1], StringComparison.Ordinal);
+        Assert.Contains("└✖ Check the public API surface of… · worker #1 · 1 tool call · 44s", lines[alpha + 2], StringComparison.Ordinal);
+        Assert.Contains("✖  gamma ", lines[alpha + 3], StringComparison.Ordinal);
+        var idColumn = lines[alpha].IndexOf("alpha", StringComparison.Ordinal);
+        Assert.Equal(idColumn + 1, lines[alpha + 1].IndexOf('├', StringComparison.Ordinal));
+        Assert.Equal(idColumn + 1, lines[alpha + 2].IndexOf('└', StringComparison.Ordinal));
+        var beta = RowOf(host, "▶  beta ");
+        Assert.Contains("└▶ Survey CLI flags · worker #1 · 1 tool call · 50s", lines[beta + 1], StringComparison.Ordinal);
+        Assert.Contains("⊘  delta ", lines[beta + 2], StringComparison.Ordinal);
+        Assert.DoesNotContain("Map the repo · planner", frame, StringComparison.Ordinal);
+        Assert.Contains("1/8", frame, StringComparison.Ordinal);
+
+        // 39.2: the agent's own tool calls and items, then the sub-agent's line in the same block.
+        var block = RowOf(host, "beta · Worker · #1 · claude-sonnet-4-5 · 4 tool calls");
+        Assert.Contains("  context 34.5k of 200.0k (17 %)", lines[block + 1], StringComparison.Ordinal);
+        Assert.Contains("  Agent Survey CLI flags", lines[block + 5], StringComparison.Ordinal);
+        Assert.Contains("  Bash dotnet build src/Beta", lines[block + 6], StringComparison.Ordinal);
+        Assert.Contains("└▶ Survey CLI flags · 1 tool call · context 3.6k", lines[block + 7], StringComparison.Ordinal);
+        Assert.Contains("1/1", frame, StringComparison.Ordinal);
+
+        // 39.3
+        Assert.Contains("11:59:30 [planner › Map the repo] Glob **/*", frame, StringComparison.Ordinal);
+        host.SaveSvg("overview-subagents");
+    }
+
+    [Fact]
+    public void Enter_on_a_child_row_shows_its_sub_agent_on_the_conversation_page()
+    {
+        var snapshot = SampleRun.CreateSubAgents();
+        using var host = UiTestHost.Start(Pages(), snapshot);
+
+        host.Press(TerminalKey.Down);
+        Assert.Contains("2/8", host.Frame(), StringComparison.Ordinal);
+        host.Press(TerminalKey.Enter);
+
+        Assert.Contains(ConversationStubPage.Prefix + SubAgentKey(snapshot, SampleRun.AlphaWorkerKey, SampleRun.AlphaSub1Id),
+            host.Frame(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Phase: Running", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_click_on_a_child_row_shows_its_sub_agent_on_the_conversation_page()
+    {
+        var snapshot = SampleRun.CreateSubAgents();
+        using var host = UiTestHost.Start(Pages(), snapshot);
+
+        host.ClickText("Survey CLI flags · worker #1");
+
+        Assert.Contains(ConversationStubPage.Prefix + SubAgentKey(snapshot, SampleRun.BetaWorkerKey, SampleRun.BetaSub1Id),
+            host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enter_on_a_task_row_with_child_rows_opens_its_popup_with_the_sub_agents()
+    {
+        using var host = UiTestHost.Start(Pages(), SampleRun.CreateSubAgents());
+
+        host.Press(TerminalKey.Enter);
+
+        AssertTaskPopup(host, "alpha - Alpha parser", "Status", "Plan", "Prompt", "Summary", "Notes", "Sessions");
+        var popup = PopupLines(host);
+        var sessions = popup.IndexOf("Sessions");
+        Assert.Equal(
+        [
+            "Worker · #1 · Succeeded · claude-sonnet-4-5",
+            "  ├ Survey the parser module · Explore · Succeeded · claude-haiku-4-5",
+            "  └ Check the public API surface of… · general-purpose · Failed · claude-sonnet-4-5",
+            "Reviewer · #1.1 · Succeeded · gpt-5.1",
+        ], popup.Skip(sessions + 1).Take(4));
+    }
+
+    [Fact]
+    public void The_selected_child_row_survives_a_new_snapshot()
+    {
+        var first = SampleRun.CreateSubAgents();
+        using var host = UiTestHost.Start(Pages(), first);
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Down);
+        Assert.Matches("→ +└✖ Check the public API", host.Frame());
+
+        var zeta = first.Tasks[0] with { Id = "zeta", Title = "Zeta first" };
+        host.SetSnapshot(first with { Version = 2, Tasks = [zeta, .. first.Tasks.Select(t => t with { })] });
+        Assert.Matches("→ +└✖ Check the public API", host.Frame());
+        Assert.Contains("4/9", host.Frame(), StringComparison.Ordinal);
+
+        host.Press(TerminalKey.Enter);
+        Assert.Contains(ConversationStubPage.Prefix + SubAgentKey(first, SampleRun.AlphaWorkerKey, SampleRun.AlphaSub2Id),
+            host.Frame(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_selected_running_block_survives_a_new_snapshot()
     {
