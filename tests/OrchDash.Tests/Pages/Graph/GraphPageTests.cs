@@ -319,6 +319,124 @@ public sealed class GraphPageTests
         Assert.Contains("●✔ t29", host.Frame(), StringComparison.Ordinal);
     }
 
+    // 40.1: the child lines of the sub-agent sample.
+    private const string AlphaSub1 = "  ├✔ Survey the parser m…";
+    private const string AlphaSub2 = "  └✖ Check the public AP…";
+    private const string BetaSub = "  └▶ Survey CLI flags";
+
+    /// <summary><see cref="OneWave"/> with one session per task, each with the beta worker's running sub-agent.</summary>
+    private static RunSnapshot OneWaveWithSubAgents(int count)
+    {
+        var run = OneWave(count);
+        var worker = SampleRun.CreateSubAgents().Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
+        var sessions = run.Tasks.Select(t => worker with { Files = worker.Files with { Key = $"{t.Id}/worker.json", TaskId = t.Id } });
+        return run with { Sessions = [.. sessions] };
+    }
+
+    [Fact]
+    public void Each_card_is_followed_by_its_sub_agents_and_the_task_panel_counts_them()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        var frame = host.Frame();
+
+        var cards = RowOf(frame, "●✔ alpha");
+        var (w1, w2) = (ColumnOf(frame, "W1"), ColumnOf(frame, "W2"));
+        Assert.Equal(cards + 1, RowOf(frame, AlphaSub1));
+        Assert.Equal(cards + 2, RowOf(frame, AlphaSub2));
+        Assert.Equal(cards + 3, RowOf(frame, " ✖ gamma"));
+        Assert.Equal(w1, ColumnOf(frame, AlphaSub1));
+        Assert.Equal(w1, ColumnOf(frame, AlphaSub2));
+        Assert.Equal(cards, RowOf(frame, "▸▶ beta"));
+        Assert.Equal(cards + 1, RowOf(frame, BetaSub));
+        Assert.Equal(cards + 2, RowOf(frame, " ⊘ delta"));
+        Assert.Equal(w2, ColumnOf(frame, BetaSub));
+        Assert.Contains("●✔ alpha" + new string(' ', 17) + "───▸▶ beta", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("Map the repo", frame, StringComparison.Ordinal);
+
+        Assert.Equal("sessions: 2 · sub-agents: 2 (0 running)", PanelLines(frame, "Task")[7]);
+        host.SaveSvg("graph-subagents");
+
+        host.Press(TerminalKey.Tab);
+        Assert.Equal("sessions: 1 · sub-agents: 1 (1 running)", PanelLines(host.Frame(), "Task")[7]);
+    }
+
+    [Theory]
+    [InlineData("Survey the parser m…", SampleRun.AlphaWorkerKey, SampleRun.AlphaSub1Id)]
+    [InlineData("Check the public AP…", SampleRun.AlphaWorkerKey, SampleRun.AlphaSub2Id)]
+    [InlineData("Survey CLI flags", SampleRun.BetaWorkerKey, SampleRun.BetaSub1Id)]
+    public void A_click_on_a_child_line_shows_its_sub_agent_on_the_conversation_page(string text, string sessionKey, string agentId)
+    {
+        var run = SampleRun.CreateSubAgents();
+        using var host = Start(run);
+
+        host.ClickText(text);
+
+        var session = run.Sessions.Single(s => s.Files.Key == sessionKey);
+        Assert.Contains(ConversationStubPage.Prefix + AgentKey.Of(session, agentId), host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_click_on_the_indent_of_a_child_line_opens_it_too()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        var frame = host.Frame();
+
+        host.Click(ColumnOf(frame, BetaSub), RowOf(frame, BetaSub));
+
+        Assert.Contains(ConversationStubPage.Prefix + SampleRun.BetaWorkerKey + "|" + SampleRun.BetaSub1Id, host.Frame(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Up_Down_and_Tab_move_between_the_cards_and_skip_the_child_lines()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        host.Press(TerminalKey.Down);
+        Assert.Contains("●✖ gamma", host.Frame(), StringComparison.Ordinal);
+        Assert.Equal("gamma - Gamma formatter", PanelLines(host.Frame(), "Task")[0]);
+        host.Press(TerminalKey.Down);
+        Assert.Contains("●✖ gamma", host.Frame(), StringComparison.Ordinal);
+
+        host.Press(TerminalKey.Tab);
+        Assert.Contains("●⊘ delta", host.Frame(), StringComparison.Ordinal);
+        host.Press(TerminalKey.Up);
+        Assert.Contains("●▶ beta", host.Frame(), StringComparison.Ordinal);
+        host.Press(TerminalKey.Up);
+        Assert.Contains("●▶ beta", host.Frame(), StringComparison.Ordinal);
+        host.Press(TerminalKey.Down);
+        Assert.Contains("●⊘ delta", host.Frame(), StringComparison.Ordinal);
+
+        host.Press(TerminalKey.Tab, TerminalModifiers.Shift);
+        Assert.Contains("●✖ gamma", host.Frame(), StringComparison.Ordinal);
+        host.Press(TerminalKey.Up);
+        Assert.Contains("●✔ alpha", host.Frame(), StringComparison.Ordinal);
+        Assert.Contains(AlphaSub1, host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tall_graph_with_child_lines_scrolls_to_the_selected_card_line()
+    {
+        using var host = Start(OneWaveWithSubAgents(30), height: 30);
+        Assert.Contains("W1", host.Frame(), StringComparison.Ordinal);
+        Assert.DoesNotContain("t15", host.Frame(), StringComparison.Ordinal);
+
+        for (var i = 1; i < 30; i++)
+        {
+            host.Press(TerminalKey.Down);
+            Assert.Contains($"●✔ t{i + 1:00}", host.Frame(), StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("W1", host.Frame(), StringComparison.Ordinal);
+        Assert.Equal("t30 - Alpha parser", PanelLines(host.Frame(), "Task")[0]);
+
+        for (var i = 29; i >= 1; i--)
+        {
+            host.Press(TerminalKey.Up);
+            Assert.Contains($"●✔ t{i:00}", host.Frame(), StringComparison.Ordinal);
+        }
+        Assert.Contains("W1", host.Frame(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_new_snapshot_scrolls_to_a_selection_that_moved_out_of_view()
     {
