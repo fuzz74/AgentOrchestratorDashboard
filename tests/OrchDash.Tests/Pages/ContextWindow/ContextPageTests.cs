@@ -21,6 +21,13 @@ public sealed class ContextPageTests
         "Claude · worker · alpha · claude-sonnet-4-5 · 2 calls · peak 43.3k · context 43.3k of 200.0k (22 %)";
     private const string AlphaReviewHeader = "Copilot · reviewer · alpha · gpt-5.1 · 2 calls · peak 17.0k · context 17.0k";
 
+    // The rows of SampleRun.CreateSubAgents(), whose planner widens the name column (42.1).
+    private const string SubAgentsAlphaWorkerRow = "✔ alpha    worker     #1     43.3k";
+    private const string AlphaSub1Row = "  ├✔ Survey the parser module 5.4k";
+    private const string BetaSub1Row = "  └▶ Survey CLI flags         3.6k";
+    private const string AlphaSub1Header =
+        "Claude · sub-agent · alpha worker #1 › Survey the parser module · claude-haiku-4-5 · 2 calls · peak 5.4k · context 5.4k";
+
     private static UiTestHost Start(RunSnapshot? snapshot = null) =>
         UiTestHost.Start([new ContextPage(), new KeyPickerPage()], snapshot ?? SampleRun.CreateEnriched());
 
@@ -501,6 +508,150 @@ public sealed class ContextPageTests
         host.Press(TerminalKey.Up);
 
         Assert.StartsWith("call 1", Selected(host, "Calls"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Each_session_is_followed_by_the_child_rows_of_its_sub_agents_with_their_context()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        Assert.Equal(
+        [
+            "✔ planner  planner    #1     15.8k",
+            "  ├✔ Map the repo             6.8k",
+            "  │ └✔ Read the spec          5.9k",
+            "  └✔ Survey the tests         6.1k",
+            SubAgentsAlphaWorkerRow,
+            AlphaSub1Row,
+            "  └✖ Check the public API ... 9.8k",
+            "✔ alpha    reviewer   #1.1   17.0k",
+            "✖ gamma    worker     #1     26.5k",
+            "✖ gamma    worker     #2     33.5k",
+            "▶ beta     worker     #1     34.5k",
+            BetaSub1Row,
+        ], Rows(host, "Sessions"));
+        Assert.Contains("Copilot · planner · gpt-5.6-luna · 2 calls · peak 15.8k · context 15.8k", host.Frame(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Down_from_a_session_selects_its_sub_agent_and_shows_the_sub_agent_s_own_calls_and_make_up()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText(SubAgentsAlphaWorkerRow[2..]);
+        // The session shows its own two calls, not the three of its sub-agents.
+        Assert.Contains(AlphaWorkerHeader, host.Frame(), StringComparison.Ordinal);
+        Assert.Equal(2, Rows(host, "Calls").Length);
+
+        host.Press(TerminalKey.Down);
+
+        Assert.Equal(AlphaSub1Row, Selected(host, "Sessions"));
+        Assert.Contains(AlphaSub1Header, host.Frame(), StringComparison.Ordinal);
+        Assert.Equal(
+        [
+            "call 1  12:00:19    4.0k    +4.0k  out 120     think -       tool_use",
+            "call 2  12:00:50    5.4k    +1.3k  out 260     think -       end_turn",
+        ], Rows(host, "Calls"));
+        Assert.StartsWith("call 2", Selected(host, "Calls"), StringComparison.Ordinal);
+        // Call 1 shares 4,003 tokens over 726 characters, call 2 shares 1,349 over 199.
+        Assert.Equal(
+        [
+            "System prompt        915   17 %     166 chars  2 parts   est.",
+            "Tool definitions    2.8k   52 %     504 chars  2 parts   est.",
+            "Prompt               308    6 %      56 chars  1 part    est.",
+            "Conversation        1.3k   25 %     199 chars  2 parts   est.",
+        ], PaneLines(host, "Make-up at call 2")[^4..]);
+        Assert.Equal(
+        [
+            "System prompt     block 1                      ~314      57 chars  call 1",
+            "System prompt     block 2                      ~601     109 chars  call 1",
+            "Tool definitions  Glob                        ~1.4k     262 chars  call 1",
+            "Tool definitions  Read                        ~1.3k     242 chars  call 1",
+            "Prompt            prompt                       ~308      56 chars  call 1",
+            "Conversation      Glob src/Alpha/**            ~555      82 chars  call 2",
+            "Conversation      Read src/Alpha/Parser.cs     ~794     117 chars  call 2",
+        ], Rows(host, "Parts"));
+        host.SaveSvg("context-subagent");
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.AlphaWorkerKey}|{SampleRun.AlphaSub1Id}", host.Frame(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_key_naming_a_sub_agent_selects_its_child_row_and_s_and_t_open_its_system_prompt_and_tools()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.Type('2');
+
+        host.Type('c');
+
+        Assert.Equal(AlphaSub1Row, Selected(host, "Sessions"));
+        Assert.Contains(AlphaSub1Header, host.Frame(), StringComparison.Ordinal);
+        host.Type('s');
+        AssertPopup(host, "System prompt", "Block 1, 57 characters", "Block 2, 109 characters");
+        host.Press(TerminalKey.Escape);
+        host.Type('t');
+        AssertPopup(host, "Tool definitions", "Glob", "Read");
+        Assert.DoesNotContain("Bash", PopupLines(host));
+    }
+
+    [Fact]
+    public void S_on_a_sub_agent_without_store_data_shows_that_its_system_prompt_is_unavailable()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+        host.ClickText(BetaSub1Row[4..]);
+
+        host.Type('s');
+
+        AssertPopup(host, "System prompt", "Unavailable");
+        Assert.Contains("unavailable: no transcript", PopupLines(host));
+    }
+
+    [Fact]
+    public void A_sub_agent_the_snapshot_does_not_have_yet_selects_its_session_until_it_starts()
+    {
+        var run = SampleRun.CreateSubAgents();
+        var worker = run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
+        using var host = Start(run);
+        host.Type('2');
+        host.Type('c');
+
+        host.SetSnapshot(run with
+        {
+            Version = 2,
+            Sessions = run.Sessions.Replace(worker, worker with { Content = worker.Content with { SubAgents = [] } }),
+        });
+
+        Assert.Equal(SubAgentsAlphaWorkerRow, Selected(host, "Sessions"));
+        Assert.Contains(AlphaWorkerHeader, host.Frame(), StringComparison.Ordinal);
+        host.SetSnapshot(run with { Version = 3 });
+        Assert.Equal(AlphaSub1Row, Selected(host, "Sessions"));
+        Assert.Contains(AlphaSub1Header, host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_running_sub_agent_follows_its_new_calls_while_its_last_call_is_selected()
+    {
+        var run = SampleRun.CreateSubAgents();
+        using var host = Start(run);
+        host.ClickText(BetaSub1Row[4..]);
+        host.Press(TerminalKey.Tab);
+        host.Press(TerminalKey.Up);
+        Assert.StartsWith("call 1", Selected(host, "Calls"), StringComparison.Ordinal);
+
+        var beta = run.Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
+        var call = new ModelCall("msg_02S1beta", "claude-haiku-4-5", SampleRun.At(12, 30, 0), new TokenUsage(2, 3_600, 900, null))
+        {
+            AgentId = SampleRun.BetaSub1Id,
+        };
+        host.SetSnapshot(run with
+        {
+            Version = 2,
+            Sessions = run.Sessions.Replace(beta, beta with { Content = beta.Content with { Calls = beta.Content.Calls.Add(call) } }),
+        });
+
+        Assert.StartsWith("call 2  12:30:00    4.5k", Selected(host, "Calls"), StringComparison.Ordinal);
+        Assert.Equal(BetaSub1Row.Replace("3.6k", "4.5k", StringComparison.Ordinal), Selected(host, "Sessions"));
     }
 
     /// <summary>The enriched sample run with <paramref name="count"/> calls added to the beta worker session.</summary>

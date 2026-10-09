@@ -5,7 +5,8 @@ using OrchDash.Pages.Conversation.Format;
 
 namespace OrchDash.Pages.ContextWindow.Format;
 
-// The text of the Context page (15.1, 15.4-15.6, 15.8-15.12): rows, header lines and pop-ups built on the make-up.
+// The text of the Context page (15.1, 15.4-15.6, 15.8-15.12, 42.1-42.3): rows, header lines and pop-ups built on the
+// make-up.
 // Lines are markup; every piece of model text goes through Look.Tag. Pop-up titles and texts are plain text.
 // Columns are separated by two spaces and padded so that the rows of one list line up.
 public static class ContextText
@@ -14,6 +15,8 @@ public static class ContextText
 
     private const string Gap = "  ";
     private const string Dot = " · ";
+    private const string ChildIndent = "  ";  // a child row starts below the session row's name (42.1)
+    private const int IconWidth = 2;          // "✔ "
     private const int RoleWidth = 9;          // "bootstrap"
     private const int AttemptWidth = 4;       // "#1.1"
     private const int ClockWidth = 8;         // "12:00:10"
@@ -27,11 +30,12 @@ public static class ContextText
     // The task id, or the role for bootstrap and planner; the first column of a session row.
     public static string SessionName(Session session) => session.Files.TaskId ?? Words.Role(session.Files.Role);
 
-    // 15.1: state icon, name (padded to nameWidth), role, #<attempt> and the context of the latest call with usage.
+    // 15.1: state icon, name (padded to nameWidth), role, #<attempt> and the context of the agent's own latest call
+    // with usage (42.2).
     public static string SessionRow(Session session, int nameWidth = 0)
     {
         var files = session.Files;
-        var latest = MakeupParts.OrEmpty(session.Content.Calls).LastOrDefault(c => c.Usage is not null);
+        var latest = SubAgents.Calls(session.Content, null).LastOrDefault(c => c.Usage is not null);
         return string.Join(Gap,
             Look.Tag(Look.Color(session.State), Look.Icon(session.State)) + " " +
             Cell("", SessionName(session), nameWidth),
@@ -40,8 +44,39 @@ public static class ContextText
             Right(Tokens(latest?.Usage?.Context), TokensWidth));
     }
 
-    // 15.4: the first line, then the unavailable reasons and the unparsed lines while there are any.
+    // 42.1: "  <Prefix><icon> <Name>" below the session's row, then the context of the sub-agent's latest call with
+    // usage, ending where the context of the session rows of that nameWidth ends. The name is padded, or cut so that
+    // one space stays before the context.
+    public static string ChildRow(AgentRow row, int nameWidth = 0)
+    {
+        var state = SubAgents.StateOf(row.Session, row.SubAgent);
+        var latest = SubAgents.Calls(row.Session.Content, row.SubAgent.Id).LastOrDefault(c => c.Usage is not null);
+        var context = Tokens(latest?.Usage?.Context);
+        var lead = ChildIndent + row.Prefix + Look.Icon(state) + " ";
+        var nameRoom = Math.Max(0, SessionRowWidth(nameWidth) - lead.Length - " ".Length - context.Length);
+        return ChildIndent + row.Prefix + Look.Tag(Look.Color(state), Look.Icon(state)) + " " +
+            Look.Tag("", Fit(row.SubAgent.Name, nameRoom)) + " " + context;
+    }
+
+    // 15.4: the first line, then the unavailable reasons and the unparsed lines while there are any. 42.3: with
+    // agentId naming a sub-agent of the session, the first line is the sub-agent's; the other lines stay the
+    // session's, whose files hold the sub-agent's events too.
     public static ImmutableArray<string> Header(RunSnapshot snapshot, Session session, ContextMakeup makeup,
+        int selectedCall, string? agentId = null)
+    {
+        var lines = ImmutableArray.CreateBuilder<string>(3);
+        lines.Add(SubAgents.Find(session.Content, agentId) is { } sub
+            ? SubAgentFirstLine(snapshot, session, sub, makeup, selectedCall)
+            : SessionFirstLine(snapshot, session, makeup, selectedCall));
+        if (!session.Unavailable.IsDefaultOrEmpty)
+            lines.Add(Look.Tag("warning", "unavailable: " + string.Join(", ", session.Unavailable)));
+        if (session.Stores.UnparsedLines > 0)
+            lines.Add(Look.Tag("warning", $"{Words.Number(session.Stores.UnparsedLines)} lines not understood"));
+        return lines.ToImmutable();
+    }
+
+    // 15.4: provider, role, task id, model, then the figures with the session's limit.
+    private static string SessionFirstLine(RunSnapshot snapshot, Session session, ContextMakeup makeup,
         int selectedCall)
     {
         var files = session.Files;
@@ -54,18 +89,33 @@ public static class ContextText
             first.Add(Look.Tag("", taskId));
         if (!string.IsNullOrEmpty(session.Content.Model))
             first.Add(Look.Tag("", session.Content.Model));
-        first.Add(Words.Count(makeup.Calls.Length, "call"));
-        first.Add("peak " + Tokens(makeup.Peak));
-        if (makeup.ContextAt(selectedCall) is { } context)
-            first.Add("context " + Look.ContextSize(context, ContextLimit.For(snapshot, session)));
+        first.AddRange(Figures(makeup, selectedCall, ContextLimit.For(snapshot, session)));
+        return string.Join(Dot, first);
+    }
 
-        var lines = ImmutableArray.CreateBuilder<string>(3);
-        lines.Add(string.Join(Dot, first));
-        if (!session.Unavailable.IsDefaultOrEmpty)
-            lines.Add(Look.Tag("warning", "unavailable: " + string.Join(", ", session.Unavailable)));
-        if (session.Stores.UnparsedLines > 0)
-            lines.Add(Look.Tag("warning", $"{Words.Number(session.Stores.UnparsedLines)} lines not understood"));
-        return lines.ToImmutable();
+    // 42.3: "<Provider> · sub-agent · <path> · <Model|-> · N calls · peak X · context X of Y", with the largest
+    // context window known for the sub-agent's model.
+    private static string SubAgentFirstLine(RunSnapshot snapshot, Session session, SubAgent sub, ContextMakeup makeup,
+        int selectedCall)
+    {
+        var first = new List<string>
+        {
+            Look.Tag("", session.Provider.ToString()),
+            "sub-agent",
+            Look.Tag("", AgentPath.Of(session, sub.Id)),
+            Look.Tag("", string.IsNullOrEmpty(sub.Model) ? Missing : sub.Model),
+        };
+        first.AddRange(Figures(makeup, selectedCall, ContextLimit.ForModel(snapshot, sub.Model)));
+        return string.Join(Dot, first);
+    }
+
+    // "N calls", "peak X" and, for a selected call with usage, "context X[ of Y (P %)]".
+    private static IEnumerable<string> Figures(ContextMakeup makeup, int selectedCall, long? limit)
+    {
+        yield return Words.Count(makeup.Calls.Length, "call");
+        yield return "peak " + Tokens(makeup.Peak);
+        if (makeup.ContextAt(selectedCall) is { } context)
+            yield return "context " + Look.ContextSize(context, limit);
     }
 
     // 15.5: the context of each call with usage, in call order.
@@ -180,6 +230,7 @@ public static class ContextText
                 [new PopupSection("Tools", string.Join('\n', MakeupParts.OrEmpty(checkpoint.ToolNames)))],
             (PartKind.Prompt, Session session) =>
                 [new PopupSection("Prompt", session.Content.SentPrompt ?? session.Prompt)],
+            (PartKind.Prompt, SubAgent sub) => [new PopupSection("Prompt", sub.Prompt)],
             (PartKind.ToolCall, ToolCall call) => ToolCallSections(call),
             (PartKind.Item, ConversationItem item) => [new PopupSection("Text", ItemText(item))],
             _ => throw new ArgumentOutOfRangeException(nameof(part), part.Kind, null),
@@ -187,10 +238,11 @@ public static class ContextText
         return new ContextPopup(CategoryName(part.Category) + ": " + part.Label, sections);
     }
 
-    // 15.11: one section per system prompt block, or the unavailable section.
-    public static ContextPopup SystemPromptPopup(Session session)
+    // 15.11: one section per system prompt block, or the unavailable section. 42.3: with agentId naming a sub-agent of
+    // the session, the blocks of its store data.
+    public static ContextPopup SystemPromptPopup(Session session, string? agentId = null)
     {
-        var blocks = MakeupParts.OrEmpty(session.Stores.SystemPrompt);
+        var blocks = MakeupParts.OrEmpty(MakeupParts.StoresOf(session, agentId).SystemPrompt);
         ImmutableArray<PopupSection> sections = blocks.IsEmpty
             ? [UnavailableSection(session)]
             : [.. blocks.Select((block, i) => new PopupSection(
@@ -199,10 +251,11 @@ public static class ContextText
     }
 
     // 15.12: one section per tool definition; else the tokens and names of the chain's last checkpoint; else the
-    // unavailable section.
-    public static ContextPopup ToolsPopup(Session session, ContextMakeup makeup)
+    // unavailable section. 42.3: with agentId naming a sub-agent of the session, the definitions of its store data;
+    // its make-up has no checkpoint.
+    public static ContextPopup ToolsPopup(Session session, ContextMakeup makeup, string? agentId = null)
     {
-        var tools = MakeupParts.OrEmpty(session.Stores.Tools);
+        var tools = MakeupParts.OrEmpty(MakeupParts.StoresOf(session, agentId).Tools);
         ImmutableArray<string> names = makeup.LastCheckpoint is { } checkpoint
             ? MakeupParts.OrEmpty(checkpoint.ToolNames)
             : [];
@@ -247,6 +300,10 @@ public static class ContextText
             : "unavailable: " + string.Join(", ", session.Unavailable));
 
     private static string Tokens(long? tokens) => tokens is { } known ? Look.Tokens(known) : Missing;
+
+    // The width of a session row whose name fits nameWidth.
+    private static int SessionRowWidth(int nameWidth) =>
+        IconWidth + nameWidth + RoleWidth + AttemptWidth + TokensWidth + 3 * Gap.Length;
 
     // "+<tokens>" or "-<tokens>"; "-" when unknown.
     private static string Step(long? step) => step switch
