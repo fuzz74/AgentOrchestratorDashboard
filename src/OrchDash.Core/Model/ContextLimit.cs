@@ -4,13 +4,13 @@ public static class ContextLimit                  // never throws
 {
     // session.Content.Result?.ContextWindow; else the largest ContextWindow among the snapshot's sessions whose
     // Content.Model is not null and equals this session's (ordinal); else null.
-    public static long? For(RunSnapshot snapshot, Session session)
-    {
-        var own = session.Content.Result?.ContextWindow;
-        if (own is not null)
-            return own;
+    public static long? For(RunSnapshot snapshot, Session session) =>
+        session.Content.Result?.ContextWindow ?? ForModel(snapshot, session.Content.Model);
 
-        var model = session.Content.Model;
+    // The largest Result.ContextWindow among the snapshot's sessions whose Content.Model equals model (ordinal);
+    // null for a null model or none found (42.3).
+    public static long? ForModel(RunSnapshot snapshot, string? model)
+    {
         if (model is null || snapshot.Sessions.IsDefault)
             return null;
 

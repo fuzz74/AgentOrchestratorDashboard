@@ -91,4 +91,58 @@ public sealed class ContextLimitTests
         Assert.Null(ContextLimit.For(run, Get(SampleRun.BetaWorkerKey)));
         Assert.Equal(200_000, ContextLimit.For(run, Get(SampleRun.AlphaWorkerKey)));
     }
+
+    [Fact]
+    public void ForModel_gets_the_window_of_a_session_with_that_model()
+    {
+        // (42.3) a sub-agent's limit
+        Assert.Equal(200_000, ContextLimit.ForModel(_run, Get(SampleRun.AlphaWorkerKey).Content.Model));
+    }
+
+    [Fact]
+    public void ForModel_of_a_null_model_is_null_even_when_a_session_without_a_model_has_a_window()
+    {
+        var run = _run with { Sessions = [WithModelAndWindow(Get(SampleRun.AlphaWorkerKey), null, 100_000)] };
+
+        Assert.Null(ContextLimit.ForModel(run, null));
+    }
+
+    [Fact]
+    public void ForModel_of_a_model_without_a_window_anywhere_is_null()
+    {
+        var reviewModel = Get(SampleRun.AlphaReviewKey).Content.Model;
+
+        Assert.NotNull(reviewModel);
+        Assert.Null(ContextLimit.ForModel(_run, reviewModel));
+        Assert.Null(ContextLimit.ForModel(_run, "claude-haiku-4-5"));
+        Assert.Null(ContextLimit.ForModel(_run, Get(SampleRun.AlphaWorkerKey).Content.Model!.ToUpperInvariant()));
+    }
+
+    [Fact]
+    public void ForModel_gets_the_largest_window_of_the_model()
+    {
+        var alpha = Get(SampleRun.AlphaWorkerKey);
+        var model = alpha.Content.Model;
+        var run = _run with
+        {
+            Sessions =
+            [
+                WithModelAndWindow(alpha, model, 100_000),
+                WithModelAndWindow(alpha, model, 1_000_000),
+                alpha,
+                WithModelAndWindow(alpha, "other-model", 2_000_000),
+            ],
+        };
+
+        Assert.Equal(1_000_000, ContextLimit.ForModel(run, model));
+    }
+
+    [Fact]
+    public void ForModel_with_a_default_sessions_array_is_null()
+    {
+        var run = _run with { Sessions = default(ImmutableArray<Session>) };
+
+        Assert.Null(ContextLimit.ForModel(run, Get(SampleRun.AlphaWorkerKey).Content.Model));
+        Assert.Null(ContextLimit.ForModel(RunSnapshot.Empty(SampleRun.RepoPath), Get(SampleRun.AlphaWorkerKey).Content.Model));
+    }
 }
