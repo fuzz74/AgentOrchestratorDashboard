@@ -11,6 +11,7 @@ internal sealed class TranscriptMapper
     private readonly List<CallFigures> _calls = [];
     private readonly Dictionary<string, int> _callIndex = new(StringComparer.Ordinal);
     private readonly ImmutableArray<InjectedItem>.Builder _injected = ImmutableArray.CreateBuilder<InjectedItem>();
+    private readonly string? _agentId;
 
     private string? _cliVersion;
     private ImmutableArray<string> _systemPrompt = [];
@@ -20,14 +21,19 @@ internal sealed class TranscriptMapper
     private int? _linesRemoved;
     private int _unparsedLines;
 
+    private TranscriptMapper(string? agentId) => _agentId = agentId;
+
     private static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
 
-    /// <summary>Maps every line ended by '\n'; the bytes after the last '\n' are not read (spec 11.4).</summary>
-    public static StoreData Map(ReadOnlySpan<byte> bytes)
+    /// <summary>
+    /// Maps every line ended by '\n'; the bytes after the last '\n' are not read (spec 11.4). With an
+    /// <paramref name="agentId"/> the bytes are that sub-agent's transcript (36.1): its isSidechain lines are mapped
+    /// like any other, and its calls get that AgentId.
+    /// </summary>
+    public static StoreData Map(ReadOnlySpan<byte> bytes, string? agentId = null)
     {
-        var mapper = new TranscriptMapper();
-        if (bytes.StartsWith(Utf8Bom))
-            bytes = bytes[Utf8Bom.Length..];
+        var mapper = new TranscriptMapper(agentId);
+        bytes = WithoutBom(bytes);
 
         int newline;
         while ((newline = bytes.IndexOf((byte)'\n')) >= 0)
@@ -41,6 +47,21 @@ internal sealed class TranscriptMapper
         }
         return mapper.Build();
     }
+
+    /// <summary>
+    /// The toolUseId of a sub-agent's <c>agent-&lt;x&gt;.meta.json</c> (36.1); null unless the file is a JSON object
+    /// with a non-empty string toolUseId.
+    /// </summary>
+    public static string? ToolUseId(ReadOnlySpan<byte> meta)
+    {
+        using var document = TranscriptJson.TryParse(Encoding.UTF8.GetString(WithoutBom(meta)));
+        return document is not null && TranscriptJson.GetString(document.RootElement, "toolUseId") is { Length: > 0 } id
+            ? id
+            : null;
+    }
+
+    private static ReadOnlySpan<byte> WithoutBom(ReadOnlySpan<byte> bytes) =>
+        bytes.StartsWith(Utf8Bom) ? bytes[Utf8Bom.Length..] : bytes;
 
     private StoreData Build() => new(
         _cliVersion, _systemPrompt, _tools, _injected.ToImmutable(), [.. _calls],
@@ -56,7 +77,7 @@ internal sealed class TranscriptMapper
         }
 
         var root = document.RootElement;
-        if (TranscriptJson.IsTrue(root, "isSidechain"))
+        if (_agentId is null && TranscriptJson.IsTrue(root, "isSidechain"))
             return;
 
         if (TranscriptJson.GetString(root, "version") is { } version)
@@ -101,7 +122,10 @@ internal sealed class TranscriptMapper
         }
 
         _callIndex.Add(id, _calls.Count);
-        _calls.Add(new CallFigures(id, TranscriptJson.GetTime(root, "timestamp"), tokens, thinking, null, null, stopReason));
+        _calls.Add(new CallFigures(id, TranscriptJson.GetTime(root, "timestamp"), tokens, thinking, null, null, stopReason)
+        {
+            AgentId = _agentId,
+        });
     }
 
     private void AddAttachment(JsonElement root)

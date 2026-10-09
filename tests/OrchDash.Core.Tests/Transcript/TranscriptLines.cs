@@ -16,8 +16,8 @@ internal static class TranscriptLines
     /// <summary>The lines, each ended by '\n'.</summary>
     public static string Lines(params string[] lines) => string.Concat(lines.Select(line => line + "\n"));
 
-    public static string Assistant(string id, string time, string usage, string stopReason = "tool_use") =>
-        $$$"""{"type":"assistant","timestamp":"{{{time}}}","version":"2.1.285","isSidechain":false,"message":{"id":"{{{id}}}","stop_reason":"{{{stopReason}}}","usage":{{{usage}}},"content":[]}}""";
+    public static string Assistant(string id, string time, string usage, string stopReason = "tool_use", bool isSidechain = false) =>
+        $$$"""{"type":"assistant","timestamp":"{{{time}}}","version":"2.1.285","isSidechain":{{{(isSidechain ? "true" : "false")}}},"message":{"id":"{{{id}}}","stop_reason":"{{{stopReason}}}","usage":{{{usage}}},"content":[]}}""";
 
     public static string Usage(long input, long cacheRead, long cacheWrite, long output, long thinking) =>
         $$$"""{"input_tokens":{{{input}}},"cache_creation_input_tokens":{{{cacheWrite}}},"cache_read_input_tokens":{{{cacheRead}}},"output_tokens":{{{output}}},"output_tokens_details":{"thinking_tokens":{{{thinking}}}}}""";
@@ -27,4 +27,8 @@ internal static class TranscriptLines
 
     public static string CostState(double cost, int added, int removed) =>
         $$"""{"type":"cost-state","totalCostUSD":{{cost.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"totalLinesAdded":{{added}},"totalLinesRemoved":{{removed}}}""";
+
+    /// <summary>A sub-agent's <c>agent-&lt;x&gt;.meta.json</c> as a headless run writes it (spec 4.3).</summary>
+    public static string SubAgentMeta(string toolUseId) =>
+        $$"""{"agentType":"Explore","description":"Survey the parser module","toolUseId":"{{toolUseId}}","spawnDepth":1,"requestShape":"foreground","requestNonInteractive":true}""";
 }

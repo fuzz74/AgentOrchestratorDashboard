@@ -12,10 +12,13 @@ internal static class ClaudeLines
     public const string Time1 = "2026-10-01T08:46:40.513Z";
     public const string Time2 = "2026-10-01T08:46:41.464Z";
     public const string Time3 = "2026-10-01T08:46:43.772Z";
+    public const string Time4 = "2026-10-01T08:46:45.120Z";
+    public const string SubModelName = "claude-haiku-4-5";
 
     public static readonly DateTimeOffset At1 = new(2026, 10, 1, 8, 46, 40, 513, TimeSpan.Zero);
     public static readonly DateTimeOffset At2 = new(2026, 10, 1, 8, 46, 41, 464, TimeSpan.Zero);
     public static readonly DateTimeOffset At3 = new(2026, 10, 1, 8, 46, 43, 772, TimeSpan.Zero);
+    public static readonly DateTimeOffset At4 = new(2026, 10, 1, 8, 46, 45, 120, TimeSpan.Zero);
 
     /// <summary>A system/init line with cwd <c>C:\Work\Repo</c>.</summary>
     public static string Init(string cwd = @"C:\\Work\\Repo") =>
@@ -28,6 +31,13 @@ internal static class ClaudeLines
     public static string Assistant(string messageId, string time, string blocks, int input = 2, int cacheRead = 17465, int cacheWrite = 29331) =>
         $$$"""{"type":"assistant","message":{"model":"{{{ModelName}}}","id":"{{{messageId}}}","type":"message","role":"assistant","content":[{{{blocks}}}],"usage":{"input_tokens":{{{input}}},"cache_creation_input_tokens":{{{cacheWrite}}},"cache_read_input_tokens":{{{cacheRead}}},"output_tokens":8}},"parent_tool_use_id":null,"session_id":"{{{SessionId}}}","timestamp":"{{{time}}}"}""";
 
+    /// <summary>
+    /// An assistant line of sub-agent <paramref name="parentToolUseId"/>, with parent_tool_use_id, subagent_type and
+    /// task_description at the top level (spec 4.3).
+    /// </summary>
+    public static string Assistant(string messageId, string time, string blocks, string parentToolUseId, string subagentType, string taskDescription, string model = SubModelName) =>
+        $$$"""{"type":"assistant","message":{"model":"{{{model}}}","id":"{{{messageId}}}","type":"message","role":"assistant","content":[{{{blocks}}}],"usage":{"input_tokens":3,"cache_creation_input_tokens":4000,"cache_read_input_tokens":0,"output_tokens":20}},"parent_tool_use_id":"{{{parentToolUseId}}}","subagent_type":"{{{subagentType}}}","task_description":"{{{taskDescription}}}","session_id":"{{{SessionId}}}","timestamp":"{{{time}}}"}""";
+
     public static string Text(string text) => $$"""{"type":"text","text":"{{text}}"}""";
 
     public static string ThinkingBlock(string text) => $$"""{"type":"thinking","thinking":"{{text}}","signature":"abc"}""";
@@ -35,9 +45,36 @@ internal static class ClaudeLines
     public static string ToolUse(string id, string name, string input) =>
         $$$"""{"type":"tool_use","id":"{{{id}}}","name":"{{{name}}}","input":{{{input}}},"caller":{"type":"direct"}}""";
 
+    /// <summary>A tool_use block that starts a sub-agent; a null <paramref name="prompt"/> leaves the prompt out.</summary>
+    public static string AgentUse(string id, string description, string? prompt, string subagentType = "Explore", bool background = false, string name = "Agent")
+    {
+        var promptField = prompt is null ? "" : $"\"prompt\":\"{prompt}\",";
+        return ToolUse(id, name,
+            $$"""{"description":"{{description}}",{{promptField}}"subagent_type":"{{subagentType}}","run_in_background":{{(background ? "true" : "false")}}}""");
+    }
+
     /// <summary>A user line; <paramref name="content"/> is the JSON value of message.content.</summary>
     public static string User(string time, string content, string extra = "") =>
         $$"""{"type":"user","message":{"role":"user","content":{{content}}},"parent_tool_use_id":null,"session_id":"{{SessionId}}","timestamp":"{{time}}"{{extra}}}""";
+
+    /// <summary>A user line of sub-agent <paramref name="parentToolUseId"/>; <paramref name="content"/> is the JSON value of message.content.</summary>
+    public static string User(string time, string content, string parentToolUseId, string subagentType, string taskDescription) =>
+        $$"""{"type":"user","message":{"role":"user","content":{{content}}},"parent_tool_use_id":"{{parentToolUseId}}","subagent_type":"{{subagentType}}","task_description":"{{taskDescription}}","session_id":"{{SessionId}}","timestamp":"{{time}}"}""";
+
+    /// <summary>A system/task_started line (it has no timestamp).</summary>
+    public static string TaskStarted(string taskId, string toolUseId, bool background, string taskType = "local_agent") =>
+        $$"""{"type":"system","subtype":"task_started","task_id":"{{taskId}}","tool_use_id":"{{toolUseId}}","description":"a task","is_backgrounded":{{(background ? "true" : "false")}},"task_type":"{{taskType}}","session_id":"{{SessionId}}"}""";
+
+    /// <summary>A system/task_notification line (it has no timestamp); a null <paramref name="toolUseId"/> leaves it out.</summary>
+    public static string TaskNotification(string taskId, string? toolUseId, string status, string summary)
+    {
+        var toolUseField = toolUseId is null ? "" : $"\"tool_use_id\":\"{toolUseId}\",";
+        return $$"""{"type":"system","subtype":"task_notification","task_id":"{{taskId}}",{{toolUseField}}"status":"{{status}}","output_file":"","summary":"{{summary}}","session_id":"{{SessionId}}"}""";
+    }
+
+    /// <summary>A successful result line with the given result text.</summary>
+    public static string Result(string text) =>
+        $$"""{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"{{text}}","session_id":"{{SessionId}}"}""";
 
     public static string ToolResultBlock(string toolUseId, string content, bool isError = false) =>
         $$"""{"tool_use_id":"{{toolUseId}}","type":"tool_result","content":{{content}},"is_error":{{(isError ? "true" : "false")}}}""";
