@@ -11,6 +11,8 @@ public static partial class ProgressParser
 {
     private const string TimeFormat = "yyyy-MM-dd HH:mm:ss";
     private const string Separator = "  ";
+    private const string SubAgentTagStart = "↳ [";
+    private const string SubAgentTagEnd = "] ";
 
     private static readonly string[] AgentToolNames =
         ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep", "Bash", "PowerShell", "StructuredOutput", "Task", "Agent"];
@@ -36,6 +38,7 @@ public static partial class ProgressParser
         var entries = ImmutableArray.CreateBuilder<ProgressEntry>();
         DateTimeOffset time = default;
         string? source = null;
+        string? subAgent = null;
         StringBuilder? message = null;
 
         var lines = text.Split('\n');
@@ -47,10 +50,11 @@ public static partial class ProgressParser
             if (TryParseEntryStart(line, out var lineTime, out var rest))
             {
                 if (message is not null)
-                    entries.Add(CreateEntry(time, source, message.ToString()));
+                    entries.Add(CreateEntry(time, source, subAgent, message.ToString()));
 
                 time = lineTime;
                 (source, var body) = SplitSource(rest);
+                (subAgent, body) = SplitSubAgent(body);
                 message = new StringBuilder(body);
             }
             else
@@ -60,7 +64,7 @@ public static partial class ProgressParser
         }
 
         if (message is not null)
-            entries.Add(CreateEntry(time, source, message.ToString()));
+            entries.Add(CreateEntry(time, source, subAgent, message.ToString()));
 
         return entries.ToImmutable();
     }
@@ -94,8 +98,22 @@ public static partial class ProgressParser
         return (message[1..end], message[(end + 2)..]);
     }
 
-    private static ProgressEntry CreateEntry(DateTimeOffset time, string? source, string message) =>
-        new(time, source, message, GetKind(source, message));
+    // 37.1, 37.2: a leading "↳ [<name>] " names the sub-agent, the name being the text up to the first "] "; a tag
+    // with an empty name, or one anywhere else, stays part of the message.
+    private static (string? SubAgent, string Message) SplitSubAgent(string message)
+    {
+        if (!message.StartsWith(SubAgentTagStart, StringComparison.Ordinal))
+            return (null, message);
+
+        var end = message.IndexOf(SubAgentTagEnd, SubAgentTagStart.Length, StringComparison.Ordinal);
+        if (end <= SubAgentTagStart.Length)
+            return (null, message);
+
+        return (message[SubAgentTagStart.Length..end], message[(end + SubAgentTagEnd.Length)..]);
+    }
+
+    private static ProgressEntry CreateEntry(DateTimeOffset time, string? source, string? subAgent, string message) =>
+        new(time, source, message, GetKind(source, message)) { SubAgent = subAgent };
 
     private static ProgressKind GetKind(string? source, string message)
     {

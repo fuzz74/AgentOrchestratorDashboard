@@ -190,6 +190,83 @@ public sealed class ProgressParserTests
         Assert.Equal(ProgressKind.Info, Assert.Single(ProgressParser.Parse("2026-10-01 10:00:00  [DONE] x")).Kind);
     }
 
+    [Theory]
+    [InlineData("[planner] ↳ [Map the repo] Glob **/*", "planner", "Map the repo", "Glob **/*", ProgressKind.Activity)]
+    [InlineData("[bootstrap] ↳ [Survey] Bash mkdir -p src", "bootstrap", "Survey", "Bash mkdir -p src", ProgressKind.Activity)]
+    [InlineData("[planner] ↳ [x] tool: glob", "planner", "x", "tool: glob", ProgressKind.Activity)]
+    [InlineData("↳ [x] tool: glob", null, "x", "tool: glob", ProgressKind.Activity)]
+    [InlineData("[core] ↳ [x] Read a.cs", "core", "x", "Read a.cs", ProgressKind.Info)]
+    [InlineData("↳ [x] Glob **/*", null, "x", "Glob **/*", ProgressKind.Info)]
+    [InlineData("[core] ↳ [x] review passed", "core", "x", "review passed", ProgressKind.Success)]
+    [InlineData("[planner] ↳ [a] b] c", "planner", "a", "b] c", ProgressKind.Info)]
+    [InlineData("[planner] ↳ [a]b] Read c.cs", "planner", "a]b", "Read c.cs", ProgressKind.Activity)]
+    [InlineData("[planner] ↳ [x] ", "planner", "x", "", ProgressKind.Info)]
+    public void Takes_the_sub_agent_from_a_leading_tag_and_classifies_the_rest(string message, string? source,
+        string subAgent, string expected, ProgressKind kind)
+    {
+        var entry = Assert.Single(ProgressParser.Parse("2026-10-01 10:00:00  " + message));
+
+        Assert.Equal(source, entry.Source);
+        Assert.Equal(subAgent, entry.SubAgent);
+        Assert.Equal(expected, entry.Message);
+        Assert.Equal(kind, entry.Kind);
+    }
+
+    [Theory]
+    [InlineData("[core] worker: 5 tool calls, last: ↳ [x] Read a.cs", "core", ProgressKind.Activity)]
+    [InlineData("[planner] Read ↳ [x] a.cs", "planner", ProgressKind.Activity)]
+    [InlineData("[planner] ↳ [] Glob **/*", "planner", ProgressKind.Info)]
+    [InlineData("↳ [] x", null, ProgressKind.Info)]
+    [InlineData("[planner] ↳ [x]Glob **/*", "planner", ProgressKind.Info)]
+    [InlineData("[planner] ↳ [open bracket only", "planner", ProgressKind.Info)]
+    [InlineData("[planner]  ↳ [x] Glob **/*", "planner", ProgressKind.Info)]
+    [InlineData("[planner] ↳[x] Glob **/*", "planner", ProgressKind.Info)]
+    public void Leaves_a_tag_that_is_not_leading_or_has_no_name_in_the_message(string message, string? source, ProgressKind kind)
+    {
+        var entry = Assert.Single(ProgressParser.Parse("2026-10-01 10:00:00  " + message));
+
+        Assert.Equal(source, entry.Source);
+        Assert.Null(entry.SubAgent);
+        Assert.Equal(source is null ? message : message[(source.Length + 3)..], entry.Message);
+        Assert.Equal(kind, entry.Kind);
+    }
+
+    [Fact]
+    public void A_tagged_message_keeps_its_continuation_lines()
+    {
+        const string text =
+            "2026-10-01 10:00:00  [planner] ↳ [Map the repo] Bash ls\r\n" +
+            "second line\r\n" +
+            "] third line\r\n" +
+            "2026-10-01 10:00:01  [planner] ↳ [no end\n" +
+            "x] Read a.cs\n";
+
+        var entries = ProgressParser.Parse(text);
+
+        Assert.Equal(2, entries.Length);
+        Assert.Equal(("planner", "Map the repo", "Bash ls\nsecond line\n] third line", ProgressKind.Activity),
+            (entries[0].Source, entries[0].SubAgent, entries[0].Message, entries[0].Kind));
+        // The tag ends on its own line: a "] " on a continuation line does not close it.
+        Assert.Equal(("planner", (string?)null, "↳ [no end\nx] Read a.cs", ProgressKind.Info),
+            (entries[1].Source, entries[1].SubAgent, entries[1].Message, entries[1].Kind));
+    }
+
+    [Fact]
+    public void Untagged_entries_have_no_sub_agent()
+    {
+        const string text =
+            "2026-10-01 10:00:00  Run started: 1 tasks\n" +
+            "2026-10-01 10:00:01  [planner] Glob **/*\n" +
+            "↳ [x] continued\n" +
+            "2026-10-01 10:00:02  [core] DONE\n";
+
+        var entries = ProgressParser.Parse(text);
+
+        Assert.Equal(3, entries.Length);
+        Assert.All(entries, entry => Assert.Null(entry.SubAgent));
+        Assert.Equal("Glob **/*\n↳ [x] continued", entries[1].Message);
+    }
+
     [Fact]
     public void Parses_the_claude_fixture()
     {
