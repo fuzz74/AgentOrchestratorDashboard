@@ -274,6 +274,89 @@ public sealed class UsageRulesTests
         Assert.Equal(["2.1.3", "2.1.285"], UsageRules.Versions(run, Provider.Claude));
     }
 
+    [Fact]
+    public void A_session_counts_its_sub_agents_calls()
+    {
+        var run = SampleRun.CreateSubAgents();
+        var worker = run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
+
+        // The sub-agent call without output leaves the output to the result, as for any call without it.
+        Assert.Equal(
+            new UsageFigures(1, 5, 2_008, 60_000, 19_650, 3_100, 1_390, 43_300, 0.25, null, null, 12, 3),
+            UsageRules.Of(run, worker));
+    }
+
+    [Fact]
+    public void A_sessions_peak_context_comes_from_its_own_calls()
+    {
+        var run = SampleRun.CreateSubAgents();
+        var original = run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
+        var worker = WithCalls(original, original.Content.Calls.Select(c =>
+            c.AgentId == SampleRun.AlphaSub2Id ? c with { Usage = new TokenUsage(3, 70_000, 9_800, null) } : c));
+
+        var figures = UsageRules.Of(Replace(run, worker), worker);
+
+        Assert.Equal(43_300, figures.PeakContext);
+        Assert.Equal(130_000, figures.CacheRead);
+        Assert.Equal(79_803, UsageRules.OfSubAgent(worker, SampleRun.AlphaSub2Id).PeakContext);
+    }
+
+    [Fact]
+    public void Sub_agent_figures_come_from_its_calls()
+    {
+        var run = SampleRun.CreateSubAgents();
+        var worker = run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
+        var planner = run.Sessions.Single(s => s.Files.Key == SampleRun.PlannerKey);
+
+        Assert.Equal(
+            new UsageFigures(0, 2, 5, 4_000, 5_350, 380, null, 5_352, null, null, null, null, null),
+            UsageRules.OfSubAgent(worker, SampleRun.AlphaSub1Id));
+        Assert.Equal(
+            new UsageFigures(0, 1, 3, 0, 9_800, null, null, 9_803, null, null, null, null, null),
+            UsageRules.OfSubAgent(worker, SampleRun.AlphaSub2Id));
+        Assert.Equal(
+            new UsageFigures(0, 1, 10, 0, 5_900, 180, 48, 5_910, null, null, 270_000_000, null, null),
+            UsageRules.OfSubAgent(planner, SampleRun.PlannerSub2Id));
+    }
+
+    [Fact]
+    public void A_sub_agent_without_calls_knows_no_figure()
+    {
+        var worker = SampleRun.CreateSubAgents().Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey);
+        var bare = WithCalls(worker, worker.Content.Calls.Where(c => c.AgentId != SampleRun.AlphaSub2Id));
+
+        Assert.Equal(UsageRules.Sum([]), UsageRules.OfSubAgent(bare, SampleRun.AlphaSub2Id));
+    }
+
+    [Fact]
+    public void Groups_count_their_sub_agents_and_the_tokens_of_their_calls()
+    {
+        var groups = UsageRules.Groups(SampleRun.CreateSubAgents());
+
+        Assert.Equal(["planner", "alpha", "gamma", "beta"], groups.Select(g => g.Name));
+        Assert.Equal([3, 2, 0, 1], groups.Select(g => g.SubAgentCount));
+        Assert.Equal([19_413L, 19_538L, 0L, 3_603L], groups.Select(g => g.SubAgentTokens));
+        Assert.Equal([48_418L, 117_123L, 118_830L, 56_903L], groups.Select(g => g.Figures.Tokens));
+    }
+
+    [Fact]
+    public void Groups_without_sub_agents_count_none()
+    {
+        Assert.All(UsageRules.Groups(_run), g => Assert.Equal((0, 0L), (g.SubAgentCount, g.SubAgentTokens)));
+    }
+
+    [Fact]
+    public void Sub_agents_are_counted_over_all_sessions_nested_ones_included()
+    {
+        var run = SampleRun.CreateSubAgents();
+
+        Assert.Equal(6, UsageRules.SubAgentCount(run.Sessions));
+        Assert.True(UsageRules.HasSubAgents(run));
+        Assert.Equal(0, UsageRules.SubAgentCount(_run.Sessions));
+        Assert.False(UsageRules.HasSubAgents(_run));
+        Assert.False(UsageRules.HasSubAgents(SampleRun.Create()));
+    }
+
     // The snapshot with each given session put in place of the session with its key.
     internal static RunSnapshot Replace(RunSnapshot run, params Session[] sessions) => run with
     {

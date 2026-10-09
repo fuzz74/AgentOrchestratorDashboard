@@ -10,7 +10,8 @@ public static class UsageRules
     public const string Bootstrap = "bootstrap";
     public const string Planner = "planner";
 
-    // One session's figures by the usage rules table.
+    // One session's figures by the usage rules table. They count its sub-agents' calls too, except the peak context,
+    // which comes from the agent's own calls (43.2).
     public static UsageFigures Of(RunSnapshot snapshot, Session session)
     {
         var content = session.Content;
@@ -35,7 +36,7 @@ public static class UsageRules
             : result?.Usage?.Output;
 
         var thinking = SumKnown(calls.Select(c => c.ThinkingTokens));
-        long? peak = withUsage.Count > 0 ? withUsage.Max(u => u.Context) : null;
+        var peak = Peak(SubAgents.Calls(content, null));
 
         // A transcript covers every attempt of its session, so its cost and lines count only for a session of its own.
         var ownStores = !SharesSessionId(snapshot, session);
@@ -54,11 +55,38 @@ public static class UsageRules
             cost, premium, nanoAiu, added, removed);
     }
 
+    // 43.1: a sub-agent's figures from its calls (SubAgents.Calls): the tokens and the peak context of those with
+    // usage, thinking and AIU where known. It is no session and has no result, so no cost, premium requests or lines.
+    public static UsageFigures OfSubAgent(Session session, string agentId)
+    {
+        var calls = SubAgents.Calls(session.Content, agentId);
+        var withUsage = calls.Where(c => c.Usage is not null).Select(c => c.Usage!).ToList();
+        var known = withUsage.Count > 0;
+
+        return new UsageFigures(0, calls.Length,
+            known ? withUsage.Sum(u => u.Input) : null,
+            known ? withUsage.Sum(u => u.CacheRead) : null,
+            known ? withUsage.Sum(u => u.CacheWrite) : null,
+            known && withUsage.All(u => u.Output is not null) ? withUsage.Sum(u => u.Output!.Value) : null,
+            SumKnown(calls.Select(c => c.ThinkingTokens)),
+            Peak(calls),
+            null, null, SumKnown(calls.Select(c => c.NanoAiu)), null, null);
+    }
+
+    // The sub-agents of the sessions, nested ones included (43.2, 43.4).
+    public static int SubAgentCount(IEnumerable<Session> sessions) =>
+        sessions.Sum(session => SubAgents.Tree(session.Content).Length);
+
+    // Whether a session of the snapshot has sub-agents; only then does the page show their columns, bars and lines (N.1).
+    public static bool HasSubAgents(RunSnapshot snapshot) =>
+        snapshot.Sessions.Any(session => !session.Content.SubAgents.IsDefaultOrEmpty);
+
     // The session's TaskId, else "bootstrap" or "planner" by its role.
     public static string GroupOf(Session session) => session.Files.TaskId ?? Words.Role(session.Files.Role);
 
     // Only groups with sessions: bootstrap, planner, the tasks in snapshot order, then the groups of task ids that are
-    // not among the snapshot's tasks in order of first appearance. Sessions keep the snapshot order.
+    // not among the snapshot's tasks in order of first appearance. Sessions keep the snapshot order. Each group also
+    // counts its sub-agents and their tokens (43.4).
     public static ImmutableArray<UsageGroup> Groups(RunSnapshot snapshot)
     {
         var rank = new Dictionary<string, int>(StringComparer.Ordinal) { [Bootstrap] = 0, [Planner] = 1 };
@@ -83,10 +111,17 @@ public static class UsageRules
             .. firstSeen
                 .Select((name, seen) => (Name: name, Order: rank.TryGetValue(name, out var r) ? r : rank.Count + seen))
                 .OrderBy(g => g.Order)
-                .Select(g => new UsageGroup(g.Name, [.. byName[g.Name]],
-                    Sum(byName[g.Name].Select(session => Of(snapshot, session))))),
+                .Select(g => Group(snapshot, g.Name, byName[g.Name])),
         ];
     }
+
+    private static UsageGroup Group(RunSnapshot snapshot, string name, List<Session> sessions) =>
+        new(name, [.. sessions], Sum(sessions.Select(session => Of(snapshot, session))))
+        {
+            SubAgentCount = SubAgentCount(sessions),
+            SubAgentTokens = sessions.Sum(session =>
+                SubAgents.Tree(session.Content).Sum(sub => OfSubAgent(session, sub.Id).Tokens)),
+        };
 
     // The figures summed over all sessions of the snapshot.
     public static UsageFigures Total(RunSnapshot snapshot) => Sum(snapshot.Sessions.Select(session => Of(snapshot, session)));
@@ -138,6 +173,10 @@ public static class UsageRules
             .OfType<string>()
             .Distinct(StringComparer.Ordinal),
     ];
+
+    // The largest context of the calls with usage; null when none has usage.
+    private static long? Peak(IEnumerable<ModelCall> calls) =>
+        calls.Where(c => c.Usage is not null).Max(c => (long?)c.Usage!.Context);
 
     private static bool SharesSessionId(RunSnapshot snapshot, Session session) =>
         session.Content.SessionId is { } id && snapshot.Sessions.Any(other =>
