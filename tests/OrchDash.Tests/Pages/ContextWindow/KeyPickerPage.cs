@@ -9,7 +9,8 @@ namespace OrchDash.Tests.Pages.ContextWindow;
 
 /// <summary>
 /// A stand-in for another page: it shows <c>selected key: &lt;key&gt;</c>, and its commands <c>a</c> and <c>b</c> set
-/// <see cref="IAppContext.SelectedSessionKey"/> to the alpha or the beta worker session and show the Context page.
+/// <see cref="IAppContext.SelectedSessionKey"/> to the alpha or the beta worker session, and <c>c</c> to the alpha
+/// worker's first sub-agent of <see cref="SampleRun.CreateSubAgents"/> (42.1), and show the Context page.
 /// </summary>
 internal sealed class KeyPickerPage : IPage
 {
@@ -22,6 +23,7 @@ internal sealed class KeyPickerPage : IPage
         var body = new ScrollViewer(new TextBlock(() => $"selected key: {context.SelectedSessionKey.Value ?? "none"}"), focusable: true);
         AddPick('a', "Alpha", SampleRun.AlphaWorkerKey);
         AddPick('b', "Beta", SampleRun.BetaWorkerKey);
+        AddPick('c', "Sub-agent", SampleRun.AlphaWorkerKey + AgentKey.Separator + SampleRun.AlphaSub1Id);
         return body;
 
         void AddPick(char key, string label, string sessionKey) =>

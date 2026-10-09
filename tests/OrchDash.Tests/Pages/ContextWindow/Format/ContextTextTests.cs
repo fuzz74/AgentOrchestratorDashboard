@@ -1,3 +1,4 @@
+using OrchDash.Contracts;
 using OrchDash.Core.Model;
 using OrchDash.Pages.ContextWindow.Format;
 using OrchDash.Tests.Support;
@@ -5,12 +6,18 @@ using Xunit;
 
 namespace OrchDash.Tests.Pages.ContextWindow.Format;
 
-// The rows and lines of the Context page on SampleRun.CreateEnriched(); colours are checked on the markup.
+// The rows and lines of the Context page on SampleRun.CreateEnriched(), and with sub-agents on
+// SampleRun.CreateSubAgents() (42.1-42.3); colours are checked on the markup.
 public sealed class ContextTextTests
 {
+    private const int SubAgentsNameWidth = 7;   // "planner", the longest session name of CreateSubAgents()
+
     private readonly RunSnapshot _run = SampleRun.CreateEnriched();
+    private readonly RunSnapshot _subRun = SampleRun.CreateSubAgents();
 
     private Session Get(string key) => _run.Sessions.Single(s => s.Files.Key == key);
+
+    private Session GetSub(string key) => _subRun.Sessions.Single(s => s.Files.Key == key);
 
     private ContextMakeup Makeup(string key) => ContextMakeup.Build(_run, Get(key));
 
@@ -291,6 +298,115 @@ public sealed class ContextTextTests
         Assert.Equal("[cyan]Conversation[/]      Edit sr...        -     234 chars  call 4",
             ContextText.PartRow(part, 10));
     }
+
+    [Fact]
+    public void Session_rows_with_sub_agents_show_the_latest_context_of_the_agent_s_own_calls()
+    {
+        // The alpha worker's last call is its failed sub-agent's (9.8k), the beta worker's its running one's (3.6k).
+        Assert.Equal("[success]✔[/] alpha    [cyan]worker[/]     #1     43.3k",
+            ContextText.SessionRow(GetSub(SampleRun.AlphaWorkerKey), SubAgentsNameWidth));
+        Assert.Equal("[primary]▶[/] beta     [cyan]worker[/]     #1     34.5k",
+            ContextText.SessionRow(GetSub(SampleRun.BetaWorkerKey), SubAgentsNameWidth));
+        Assert.Equal("[success]✔[/] planner  [blue]planner[/]    #1     15.8k",
+            ContextText.SessionRow(GetSub(SampleRun.PlannerKey), SubAgentsNameWidth));
+    }
+
+    [Fact]
+    public void Child_rows_show_prefix_state_name_and_latest_context_where_the_session_rows_end()
+    {
+        Assert.Equal(
+        [
+            "  ├[success]✔[/] Survey the parser module 5.4k",
+            "  └[error]✖[/] Check the public API ... 9.8k",
+        ], ChildRows(SampleRun.AlphaWorkerKey));
+        Assert.Equal(["  └[primary]▶[/] Survey CLI flags         3.6k"], ChildRows(SampleRun.BetaWorkerKey));
+        Assert.Equal(
+        [
+            "  ├[success]✔[/] Map the repo             6.8k",
+            "  │ └[success]✔[/] Read the spec          5.9k",
+            "  └[success]✔[/] Survey the tests         6.1k",
+        ], ChildRows(SampleRun.PlannerKey));
+    }
+
+    [Fact]
+    public void Child_row_of_a_sub_agent_left_running_without_usage_escapes_its_name()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+        var sub = worker.Content.SubAgents[1] with { Name = "Check [api]", State = SessionState.Running };
+        worker = worker with { Content = worker.Content with { Calls = [], SubAgents = [sub] } };
+
+        var row = ContextText.ChildRow(AgentTree.Rows([worker]).Single(), SubAgentsNameWidth);
+
+        Assert.Equal("  └[muted]◌[/] Check [[api]]                 -", row);
+    }
+
+    [Fact]
+    public void Header_of_a_sub_agent_shows_its_path_model_and_own_calls()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+        var makeup = ContextMakeup.Build(_subRun, worker, SampleRun.AlphaSub1Id);
+
+        // No session runs claude-haiku-4-5, so the context has no limit.
+        Assert.Equal(
+            ["Claude · sub-agent · alpha worker #1 › Survey the parser module · claude-haiku-4-5 · 2 calls · peak 5.4k · context 4.0k"],
+            ContextText.Header(_subRun, worker, makeup, 0, SampleRun.AlphaSub1Id));
+    }
+
+    [Fact]
+    public void Header_of_a_sub_agent_takes_the_limit_of_its_model()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+        var makeup = ContextMakeup.Build(_subRun, worker, SampleRun.AlphaSub2Id);
+
+        // The alpha worker runs claude-sonnet-4-5 with a context window of 200k.
+        Assert.Equal(
+            ["Claude · sub-agent · alpha worker #1 › Check the public API surface of… · claude-sonnet-4-5 · 1 call · peak 9.8k · context 9.8k of 200.0k (5 %)"],
+            ContextText.Header(_subRun, worker, makeup, 0, SampleRun.AlphaSub2Id));
+    }
+
+    [Fact]
+    public void Header_of_a_nested_sub_agent_without_a_model_shows_its_path_and_a_dash()
+    {
+        var planner = GetSub(SampleRun.PlannerKey);
+        var subs = planner.Content.SubAgents;
+        planner = planner with { Content = planner.Content with { SubAgents = subs.SetItem(1, subs[1] with { Model = null }) } };
+
+        var header = ContextText.Header(_subRun, planner, ContextMakeup.Build(_subRun, planner, SampleRun.PlannerSub2Id), -1,
+            SampleRun.PlannerSub2Id);
+
+        Assert.Equal(["Copilot · sub-agent · planner #1 › Map the repo › Read the spec · - · 1 call · peak 5.9k"], header);
+    }
+
+    [Fact]
+    public void Header_of_a_sub_agent_keeps_the_session_s_warnings_and_escapes_model_text()
+    {
+        var beta = GetSub(SampleRun.BetaWorkerKey);
+        beta = beta with { Content = beta.Content with { SubAgents = [beta.Content.SubAgents[0] with { Model = "model[x]" }] } };
+
+        var header = ContextText.Header(_subRun, beta, ContextMakeup.Build(_subRun, beta, SampleRun.BetaSub1Id), 0,
+            SampleRun.BetaSub1Id);
+
+        Assert.Equal(
+        [
+            "Claude · sub-agent · beta worker #1 › Survey CLI flags · model[[x]] · 1 call · peak 3.6k · context 3.6k",
+            "[warning]unavailable: no transcript[/]",
+        ], header);
+    }
+
+    [Fact]
+    public void Header_with_an_agent_id_the_session_does_not_have_is_the_session_s()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+        var makeup = ContextMakeup.Build(_subRun, worker);
+
+        Assert.Equal(
+            ["Claude · [cyan]worker[/] · alpha · claude-sonnet-4-5 · 2 calls · peak 43.3k · context 43.3k of 200.0k (22 %)"],
+            ContextText.Header(_subRun, worker, makeup, 1, "toolu_unknown"));
+    }
+
+    // The child rows of the session as the page shows them.
+    private IEnumerable<string> ChildRows(string key) =>
+        AgentTree.Rows([GetSub(key)]).Select(row => ContextText.ChildRow(row, SubAgentsNameWidth));
 
     private RunSnapshot WithUsage(string key, int call, TokenUsage? usage) => _run with
     {
