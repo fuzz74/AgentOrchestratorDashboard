@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using OrchDash.Contracts;
 using OrchDash.Core.Model;
 using OrchDash.Pages.Graph.Format;
@@ -14,7 +15,7 @@ namespace OrchDash.Pages.Graph;
 /// <summary>
 /// The visuals and the selection state of one <see cref="GraphPage"/>: the graph as markup lines in one vertically
 /// scrolling view, and the detail panel of the selected task. Everything shown is a function of
-/// <see cref="IAppContext.Snapshot"/> and the selected task id; the layout is cached per snapshot.
+/// <see cref="IAppContext.Snapshot"/> and the selected task id; the layout and the child rows are cached per snapshot.
 /// </summary>
 internal sealed class GraphView
 {
@@ -29,6 +30,7 @@ internal sealed class GraphView
 
     private RunSnapshot? _layoutFor;
     private GraphLayout _layout = GraphLayout.Build([]);
+    private ImmutableDictionary<string, ImmutableArray<AgentRow>> _childRows = ImmutableDictionary<string, ImmutableArray<AgentRow>>.Empty;
     private RunSnapshot? _arrangedFor;
 
     public GraphView(IAppContext context)
@@ -53,15 +55,24 @@ internal sealed class GraphView
 
     public Visual Root { get; }
 
+    /// <summary>40.1, 40.2: the layout with each card's child lines, built with the child rows once per snapshot.</summary>
     private GraphLayout Layout()
     {
         var snapshot = _context.Snapshot.Value;
         if (!ReferenceEquals(snapshot, _layoutFor))
         {
-            _layout = GraphLayout.Build(snapshot.Tasks);
+            _childRows = GraphText.ChildRows(snapshot);
+            _layout = GraphText.Layout(snapshot.Tasks, _childRows);
             _layoutFor = snapshot;
         }
         return _layout;
+    }
+
+    /// <summary>The child rows of each task of the snapshot that has any, for the layout of <see cref="Layout"/>.</summary>
+    private ImmutableDictionary<string, ImmutableArray<AgentRow>> ChildRows()
+    {
+        Layout();
+        return _childRows;
     }
 
     /// <summary>
@@ -91,7 +102,7 @@ internal sealed class GraphView
         }
         var layout = Layout();
         var width = _viewer.ViewportWidth > 0 ? _viewer.ViewportWidth : layout.TotalWidth;
-        return string.Join('\n', GraphText.Lines(layout, snapshot.Tasks, SelectedId(), width));
+        return string.Join('\n', GraphText.Lines(layout, snapshot.Tasks, SelectedId(), width, ChildRows()));
     }
 
     /// <summary>24.4: the detail lines of the selected task; empty without one.</summary>
@@ -106,13 +117,17 @@ internal sealed class GraphView
         ScrollToSelection();
     }
 
-    /// <summary>24.3: Up and Down move within the column and stop at its ends.</summary>
+    /// <summary>24.3: Up and Down move to the next card within the column, past its child lines (40.3), and stop at its ends.</summary>
     private void MoveInColumn(int step)
     {
-        if (SelectedId() is { } id && Layout() is var layout && layout.Position(id) is (var column, var row)
-            && layout.TaskAt(column, row + step) is { } next)
+        if (SelectedId() is { } id && Layout() is var layout && layout.Position(id) is (var column, _))
         {
-            Select(next);
+            var ids = layout.Columns[column].TaskIds;
+            var next = ids.IndexOf(id, StringComparer.Ordinal) + step;
+            if (next >= 0 && next < ids.Length)
+            {
+                Select(ids[next]);
+            }
         }
     }
 
@@ -129,7 +144,10 @@ internal sealed class GraphView
         }
     }
 
-    /// <summary>24.3, 24.5: a click selects the card under the pointer, or opens it when it is already selected.</summary>
+    /// <summary>
+    /// 24.3, 24.5: a click selects the card under the pointer, or opens it when it is already selected. 40.3: a click on a
+    /// child line opens its sub-agent.
+    /// </summary>
     private void OnPressed(PointerEventArgs e)
     {
         if (e.Button != TerminalMouseButton.Left)
@@ -138,17 +156,26 @@ internal sealed class GraphView
         }
         e.Handled = true;
         _viewer.App?.Focus(_viewer);
-        if (SelectedId() is not { } selected || Layout().CardAt(e.LocalX, e.LocalY) is not { } id)
+        if (SelectedId() is not { } selected)
         {
             return;
         }
-        if (id == selected)
+        var layout = Layout();
+        if (layout.CardAt(e.LocalX, e.LocalY) is { } id)
         {
-            OpenDetails();
+            if (id == selected)
+            {
+                OpenDetails();
+            }
+            else
+            {
+                Select(id);
+            }
         }
-        else
+        else if (layout.ChildAt(e.LocalX, e.LocalY) is (var taskId, var index)
+            && ChildRows().TryGetValue(taskId, out var rows) && index < rows.Length)
         {
-            Select(id);
+            ShowSubAgent(rows[index]);
         }
     }
 
@@ -170,6 +197,13 @@ internal sealed class GraphView
             _context.SelectedSessionKey.Value = session.Files.Key;
             _context.ShowPage(ConversationPageId);
         }
+    }
+
+    /// <summary>40.3: the sub-agent of a child row on the Conversation page, as on the Overview page (39.1).</summary>
+    private void ShowSubAgent(AgentRow row)
+    {
+        _context.SelectedSessionKey.Value = AgentKey.Of(row.Session, row.SubAgent.Id);
+        _context.ShowPage(ConversationPageId);
     }
 
     /// <summary>

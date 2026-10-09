@@ -11,9 +11,9 @@ using XenoAtom.Terminal.UI.Input;
 namespace OrchDash.Pages.Overview;
 
 /// <summary>
-/// The Overview page (spec 7.1-7.9): the run panel on top, the task table and the running panel side by side, and the log
-/// at the bottom. Each list scrolls inside its own panel; Tab and Shift+Tab move between the panels and Enter or a click
-/// opens the details of what is selected.
+/// The Overview page (spec 7.1-7.9, 39): the run panel on top, the task table and the running panel side by side, and the
+/// log at the bottom. Each list scrolls inside its own panel; Tab and Shift+Tab move between the panels and Enter or a click
+/// opens the details of what is selected. The task table and the running blocks show the sessions' sub-agents.
 /// </summary>
 public sealed class OverviewPage : IPage
 {
@@ -94,24 +94,63 @@ public sealed class OverviewPage : IPage
         return panel;
     }
 
-    /// <summary>7.3, 7.4: one row per task; Enter or a click opens the task pop-up.</summary>
-    private static PanelList<TaskView> TaskTable(IAppContext context)
+    /// <summary>
+    /// 7.3, 7.4, 39.1: one row per task, followed by the child rows of its sessions. Enter or a click on a task row opens
+    /// the task pop-up; on a child row it shows that sub-agent on the Conversation page.
+    /// </summary>
+    private static PanelList<OverviewRow> TaskTable(IAppContext context)
     {
         // The rows fit the width of the list, which the template reads once the table exists.
-        PanelList<TaskView>? table = null;
-        table = new PanelList<TaskView>(
+        PanelList<OverviewRow>? table = null;
+        table = new PanelList<OverviewRow>(
             "tasks",
-            () => context.Snapshot.Value.Tasks,
-            (task, _) => task.Id,
-            task => new Markup(() =>
+            TaskRows(context),
+            (row, _) => row.Key,
+            row => new Markup(() =>
             {
+                if (row.Child is { } child)
+                {
+                    return OverviewText.ChildRow(child, context.Now.Value, RowWidth(table!.List));
+                }
                 var (id, title, detail) = TaskWidths(context, table!.List);
-                return OverviewText.TaskRow(task, context.Now.Value, id, title, detail);
+                return OverviewText.TaskRow(row.Task, context.Now.Value, id, title, detail);
             }).IsSelectable(false),
-            task => context.ShowPopup($"{task.Id} - {task.Title}", OverviewText.TaskPopup(task, context.Snapshot.Value)),
+            row =>
+            {
+                if (row.Child is { } child)
+                {
+                    ShowConversation(context, AgentKey.Of(child.Session, child.SubAgent.Id));
+                    return;
+                }
+                context.ShowPopup($"{row.Task.Id} - {row.Task.Title}", OverviewText.TaskPopup(row.Task, context.Snapshot.Value));
+            },
             "Details");
         table.List.AutoFocus(true);
         return table;
+    }
+
+    /// <summary>
+    /// The task table's rows of the current snapshot (39.1). While they equal the last rows the same list comes back, as
+    /// <see cref="PanelList{T}"/> keeps its items only while they are the same instances.
+    /// </summary>
+    private static Func<IReadOnlyList<OverviewRow>> TaskRows(IAppContext context)
+    {
+        RunSnapshot? snapshot = null;
+        IReadOnlyList<OverviewRow> rows = [];
+        return () =>
+        {
+            var current = context.Snapshot.Value;
+            if (!ReferenceEquals(current, snapshot))
+            {
+                var next = OverviewText.TaskRows(current);
+                if (!next.SequenceEqual(rows))
+                {
+                    rows = next;
+                }
+                snapshot = current;
+            }
+            return rows;
+        };
     }
 
     private static Visual TaskTableContent(IAppContext context, Visual list) => new VStack(
@@ -127,20 +166,29 @@ public sealed class OverviewPage : IPage
         list.Stretch());
 
     private static (int Id, int Title, int Detail) TaskWidths(IAppContext context, Visual list) =>
-        OverviewText.TaskWidths(context.Snapshot.Value.Tasks, list.Bounds.Width - MarkerWidth);
+        OverviewText.TaskWidths(context.Snapshot.Value.Tasks, RowWidth(list));
 
-    /// <summary>7.5-7.7: one block per running session; Enter or a click shows the session on the Conversation page.</summary>
+    /// <summary>The width of a row of the list, right of the selection marker.</summary>
+    private static int RowWidth(Visual list) => list.Bounds.Width - MarkerWidth;
+
+    /// <summary>
+    /// 7.5-7.7, 39.2: one block per running session, its sub-agents' lines included; Enter or a click shows the session on
+    /// the Conversation page.
+    /// </summary>
     private static PanelList<Session> RunningPanel(IAppContext context) => new(
         "running",
         () => OverviewText.RunningSessions(context.Snapshot.Value),
         (session, _) => session.Files.Key,
         session => new Markup(() => string.Join('\n', OverviewText.RunningBlock(session, context.Snapshot.Value, context.Now.Value))).IsSelectable(false),
-        session =>
-        {
-            context.SelectedSessionKey.Value = session.Files.Key;
-            context.ShowPage(ConversationPageId);
-        },
+        session => ShowConversation(context, session.Files.Key),
         "Conversation");
+
+    /// <summary>Selects the session, or the sub-agent of an <see cref="AgentKey"/>, and shows the Conversation page.</summary>
+    private static void ShowConversation(IAppContext context, string key)
+    {
+        context.SelectedSessionKey.Value = key;
+        context.ShowPage(ConversationPageId);
+    }
 
     private static Visual RunningPanelContent(IAppContext context, Visual list) => new VStack(
         new Markup(() => Look.Tag("muted", "No running sessions"))
