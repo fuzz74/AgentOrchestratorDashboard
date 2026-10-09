@@ -24,10 +24,33 @@ public sealed partial class TimelinePageTests
     // Tall enough for all 60 rows of the sample timeline.
     private const int TallHeight = 80;
 
-    private static UiTestHost Start(RunSnapshot? snapshot = null, int height = 45) =>
-        UiTestHost.Start([new TimelinePage(), new ConversationStubPage()], snapshot ?? SampleRun.CreateTimeline(), height: height);
+    private const string SubAgentFilterRow =
+        "[o] orchestrator  [a] calls  [u] tools  [x] text  [e] prompt/result  [s] sub-agents  task: all  ▶ replay here";
+    private const string AlphaSub1Path = "alpha worker #1 › Survey the parser module";
+    private const string AlphaSub1Result =
+        "12:00:58  alpha worker #1 › Survey the parser module          result  result succeeded · The parser module has 3 files.";
+
+    // Tall enough for every row of the sub-agent sample.
+    private const int SubAgentsHeight = 110;
+
+    // Wide enough for the whole command bar, which 160 columns cut after the kind keys.
+    private const int WideWidth = 260;
+
+    private static UiTestHost Start(RunSnapshot? snapshot = null, int height = 45, int width = 160) =>
+        UiTestHost.Start([new TimelinePage(), new ConversationStubPage()], snapshot ?? SampleRun.CreateTimeline(), width, height);
 
     private static ImmutableArray<TimelineEvent> SampleEvents() => TimelineBuilder.Build(SampleRun.CreateTimeline());
+
+    private static ImmutableArray<TimelineEvent> SubAgentEvents() => TimelineBuilder.Build(SampleRun.CreateSubAgents());
+
+    /// <summary>The list on screen holds the rows of exactly these events; a row wider than the list is cut at its edge.</summary>
+    private static void AssertRows(ImmutableArray<TimelineEvent> events, string frame)
+    {
+        var expected = TimelineText.PlainRows(events);
+        var rows = ListRows(frame);
+        Assert.Equal(expected.Length, rows.Count);
+        Assert.All(rows.Zip(expected), pair => Assert.StartsWith(pair.First, pair.Second, StringComparison.Ordinal));
+    }
 
     private static string[] Lines(string frame) => frame.Split('\n');
 
@@ -413,6 +436,148 @@ public sealed partial class TimelinePageTests
         host.SetSnapshot(run with { Version = 2, Sessions = run.Sessions.RemoveAll(s => s.Files.Key == SampleRun.GammaWorker1Key) });
 
         Assert.Equal(LastRow, SelectedRow(host.Frame()));
+    }
+
+    [Fact]
+    public void With_sub_agents_the_rows_show_their_paths_and_the_filter_row_lists_s()
+    {
+        using var host = Start(SampleRun.CreateSubAgents(), height: SubAgentsHeight);
+        var frame = host.Frame();
+
+        AssertRows(SubAgentEvents(), frame);
+        Assert.Contains(AlphaSub1Result, ListRows(frame));
+        Assert.Contains(ListRows(frame), row => row.Contains("planner #1 › Map the repo › Read the spec", StringComparison.Ordinal));
+        Assert.Contains(SubAgentFilterRow, frame, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void With_sub_agents_the_command_bar_lists_s_after_the_kind_keys()
+    {
+        using var host = Start(SampleRun.CreateSubAgents(), width: WideWidth);
+
+        Assert.Contains("[e] Prompt/result | [s] Sub-agents | ", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_sub_agent_frame_shows_the_paths_of_the_planners_nested_sub_agents()
+    {
+        using var host = Start(SampleRun.CreateSubAgents());
+
+        host.Press(TerminalKey.Home);
+
+        var frame = host.Frame();
+        Assert.Equal("11:59:00  planner #1                                          prompt  prompt sent · 147 chars", SelectedRow(frame));
+        Assert.Contains(
+            "11:59:11  planner #1 › Map the repo › Read the spec           prompt  sub-agent started · explore · 58 chars",
+            ListRows(frame));
+        Assert.Contains(ListRows(frame), row => row.StartsWith(
+            "11:59:25  planner #1 › Map the repo › Read the spec           result  result succeeded · The spec asks for five tasks",
+            StringComparison.Ordinal));
+        Assert.Contains(SubAgentFilterRow, frame, StringComparison.Ordinal);
+        host.SaveSvg("timeline-subagents");
+    }
+
+    [Fact]
+    public void S_and_a_click_on_the_sub_agents_label_hide_and_show_the_sub_agent_rows()
+    {
+        using var host = Start(SampleRun.CreateSubAgents(), height: SubAgentsHeight);
+        var events = SubAgentEvents();
+        var own = TimelineText.Visible(events, TimelineText.AllKinds, null, subAgents: false);
+
+        host.Type('s');
+
+        var frame = host.Frame();
+        AssertRows(own, frame);
+        Assert.DoesNotContain(ListRows(frame), row => row.Contains(AgentPath.Separator, StringComparison.Ordinal));
+        Assert.Contains(SubAgentFilterRow, frame, StringComparison.Ordinal);
+
+        host.Type('s');
+        AssertRows(events, host.Frame());
+
+        host.ClickText("[s] sub-agents");
+        AssertRows(own, host.Frame());
+        host.ClickText("[s] sub-agents");
+        AssertRows(events, host.Frame());
+    }
+
+    [Fact]
+    public void The_kind_filters_apply_to_sub_agent_rows_too()
+    {
+        using var host = Start(SampleRun.CreateSubAgents(), height: SubAgentsHeight);
+
+        host.Type('u');
+
+        var withoutTools = TimelineText.Visible(SubAgentEvents(), TimelineText.Toggle(TimelineText.Filters.Single(f => f.Key == 'u'), TimelineText.AllKinds), null);
+        AssertRows(withoutTools, host.Frame());
+        Assert.DoesNotContain("Glob src/Alpha/**", host.Frame(), StringComparison.Ordinal);
+        Assert.Contains(AlphaSub1Result, ListRows(host.Frame()));
+    }
+
+    [Fact]
+    public void Without_sub_agents_the_page_has_no_sub_agents_label_command_or_key()
+    {
+        using var host = Start(height: TallHeight, width: WideWidth);
+        Assert.Contains(FilterRow, host.Frame(), StringComparison.Ordinal);
+        Assert.Contains("[e] Prompt/result | [1] Timeline", host.Frame(), StringComparison.Ordinal);
+        Assert.DoesNotContain("[s]", host.Frame(), StringComparison.Ordinal);
+        Assert.DoesNotContain("ub-agents", host.Frame(), StringComparison.Ordinal);
+
+        host.Type('s');
+
+        Assert.Equal(TimelineText.PlainRows(SampleEvents()), ListRows(host.Frame()));
+        Assert.Equal(LastRow, SelectedRow(host.Frame()));
+    }
+
+    [Fact]
+    public void C_on_a_sub_agent_row_shows_that_sub_agent_on_the_conversation_page()
+    {
+        using var host = Start(SampleRun.CreateSubAgents(), height: SubAgentsHeight);
+        host.ClickText("Glob src/Alpha/**");
+        Assert.Contains(AlphaSub1Path, SelectedRow(host.Frame()), StringComparison.Ordinal);
+
+        host.Type('c');
+
+        Assert.Contains(ConversationStubPage.Prefix + SampleRun.AlphaWorkerKey + "|" + SampleRun.AlphaSub1Id, host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enter_on_a_sub_agent_result_row_opens_its_report_and_on_its_prompt_row_its_prompt()
+    {
+        var run = SampleRun.CreateSubAgents();
+        var sub = SubAgents.Find(run.Sessions.Single(s => s.Files.Key == SampleRun.AlphaWorkerKey).Content, SampleRun.AlphaSub1Id)!;
+        var context = new RecordingAppContext(run);
+        using var harness = TerminalHarness.Start(new TimelinePage().Build(context), () => TerminalLoopResult.Continue, height: SubAgentsHeight);
+
+        harness.ClickText("result succeeded · The parser module has 3 files.");
+        harness.Press(TerminalKey.Enter);
+
+        Assert.Equal(["Result"], context.Popups);
+        Assert.Equal([new PopupSection("Report", "The parser module has 3 files.")], Assert.Single(context.PopupSections));
+
+        harness.ClickText($"sub-agent started · Explore · {sub.Prompt.Length} chars");
+        harness.Press(TerminalKey.Enter);
+
+        Assert.Equal(["Result", "Prompt"], context.Popups);
+        Assert.Equal([new PopupSection("Prompt", sub.Prompt)], context.PopupSections[1]);
+        Assert.Empty(context.Pages);
+    }
+
+    [Fact]
+    public void F_on_an_alpha_sub_agent_row_keeps_the_alpha_sub_agent_rows()
+    {
+        using var host = Start(SampleRun.CreateSubAgents(), height: SubAgentsHeight);
+        host.ClickText("Glob src/Alpha/**");
+
+        host.Type('f');
+
+        var frame = host.Frame();
+        Assert.Contains("task: alpha", frame, StringComparison.Ordinal);
+        AssertRows(TimelineText.Visible(SubAgentEvents(), TimelineText.AllKinds, "alpha"), frame);
+        Assert.Contains(ListRows(frame), row => row.Contains(AlphaSub1Path, StringComparison.Ordinal));
+        Assert.Contains(ListRows(frame), row => row.Contains("alpha worker #1 › Check the public API surface of…", StringComparison.Ordinal));
+        Assert.DoesNotContain("planner #1", frame, StringComparison.Ordinal);
+        Assert.DoesNotContain("beta worker", frame, StringComparison.Ordinal);
+        Assert.Contains("Glob src/Alpha/**", SelectedRow(frame), StringComparison.Ordinal);
     }
 
     [Fact]

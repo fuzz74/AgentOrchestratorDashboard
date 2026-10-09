@@ -26,6 +26,31 @@ public sealed class TimelineTextTests
     private const string AlphaReview = SampleRun.AlphaReviewKey;
     private const string BetaWorker = SampleRun.BetaWorkerKey;
     private const string GammaWorker1 = SampleRun.GammaWorker1Key;
+    private const string Planner = SampleRun.PlannerKey;
+
+    private const string AlphaSub1Path = "alpha worker #1 › Survey the parser module";
+    private const string AlphaSub2Path = "alpha worker #1 › Check the public API surface of…";
+    private const string PlannerSub2Path = "planner #1 › Map the repo › Read the spec";
+
+    private static readonly ImmutableArray<TimelineEvent> SubEvents = TimelineBuilder.Build(SampleRun.CreateSubAgents());
+
+    private static TimelineEvent SubEvent(string key) => SubEvents.Single(e => e.Key == key);
+
+    /// <summary>The Prompt or Result event of a sub-agent: <c>&lt;session&gt;:sub:&lt;id&gt;:&lt;end&gt;</c>.</summary>
+    private static TimelineEvent SubAgentEvent(string session, string id, string end) => SubEvent($"{session}:sub:{id}:{end}");
+
+    private static SubAgent SubAgentOf(TimelineEvent e) => SubAgents.Find(e.Session!.Content, e.AgentId)!;
+
+    /// <summary>The event with its sub-agent changed by <paramref name="change"/> in the event's session.</summary>
+    private static TimelineEvent WithSubAgent(TimelineEvent e, Func<SubAgent, SubAgent> change)
+    {
+        var session = e.Session!;
+        var content = session.Content with
+        {
+            SubAgents = [.. session.Content.SubAgents.Select(sub => sub.Id == e.AgentId ? change(sub) : sub)],
+        };
+        return e with { Session = session with { Content = content } };
+    }
 
     [Fact]
     public void The_sample_timeline_gives_sixty_rows_with_padded_source_and_kind_columns()
@@ -257,6 +282,184 @@ public sealed class TimelineTextTests
         AssertPopup(ConversationText.ResultEntry(result.Result!), result);
         Assert.Equal("Edit src/Alpha/Parser.cs", TimelineText.PopupTitle(tool));
         Assert.Equal(["Input", "Result", "Diff"], TimelineText.Popup(tool).Select(s => s.Heading));
+    }
+
+    [Fact]
+    public void The_source_of_a_sub_agents_event_is_its_path_down_to_a_nested_sub_agent()
+    {
+        Assert.Equal(AlphaSub1Path, TimelineText.Source(SubAgentEvent(AlphaWorker, SampleRun.AlphaSub1Id, "prompt")));
+        Assert.Equal(AlphaSub1Path, TimelineText.Source(SubEvent(AlphaWorker + ":item:4")));
+        Assert.Equal(AlphaSub2Path, TimelineText.Source(SubEvent(AlphaWorker + ":call:4")));
+        Assert.Equal("planner #1 › Map the repo", TimelineText.Source(SubEvent(Planner + ":item:5")));
+        Assert.Equal(PlannerSub2Path, TimelineText.Source(SubAgentEvent(Planner, SampleRun.PlannerSub2Id, "result")));
+        Assert.Equal(PlannerSub2Path, TimelineText.Source(SubEvent(Planner + ":call:2")));
+        Assert.Equal("planner #1", TimelineText.Source(SubEvent(Planner + ":call:4")));
+        Assert.Equal("alpha worker #1", TimelineText.Source(SubEvent(AlphaWorker + ":call:3")));
+        Assert.Equal("orchestrator", TimelineText.Source(SubEvents.First(e => e.Kind == TimelineKind.Orchestrator)));
+        Assert.All(SubEvents.Where(e => e.Session is not null),
+            e => Assert.Equal(AgentPath.Of(e.Session!, e.AgentId), TimelineText.Source(e)));
+        Assert.Equal(AlphaSub2Path.Length, TimelineText.SourceWidth(SubEvents));
+    }
+
+    [Fact]
+    public void A_sub_agents_prompt_reads_sub_agent_started_with_its_type_and_prompt_length_and_opens_the_prompt()
+    {
+        var e = SubAgentEvent(AlphaWorker, SampleRun.AlphaSub1Id, "prompt");
+        var sub = SubAgentOf(e);
+
+        Assert.Null(e.Result);
+        Assert.Equal(
+            new TimelineCells("12:00:17", AlphaSub1Path, "prompt", $"sub-agent started · Explore · {sub.Prompt.Length} chars"),
+            TimelineText.Cells(e));
+        Assert.Equal(
+            $"12:00:17  {AlphaSub1Path}  [accent]prompt[/]  [accent]sub-agent started · Explore · {sub.Prompt.Length} chars[/]",
+            TimelineText.Row(e, AlphaSub1Path.Length));
+        Assert.Equal(
+            $"sub-agent started · general-purpose · {SubAgentOf(SubAgentEvent(AlphaWorker, SampleRun.AlphaSub2Id, "prompt")).Prompt.Length} chars",
+            TimelineText.Text(SubAgentEvent(AlphaWorker, SampleRun.AlphaSub2Id, "prompt")));
+        Assert.Equal("sub-agent started · - · 0 chars", TimelineText.Text(WithSubAgent(e, s => s with { AgentType = null, Prompt = "" })));
+
+        AssertPopup(ConversationText.SubAgentPromptEntry(sub), e);
+        Assert.Equal("Prompt", TimelineText.PopupTitle(e));
+        Assert.Equal([new PopupSection("Prompt", sub.Prompt)], TimelineText.Popup(e));
+    }
+
+    [Fact]
+    public void A_sub_agents_result_reads_its_state_and_the_first_line_of_its_report_in_the_states_colour()
+    {
+        var succeeded = SubAgentEvent(AlphaWorker, SampleRun.AlphaSub1Id, "result");
+        var failed = SubAgentEvent(AlphaWorker, SampleRun.AlphaSub2Id, "result");
+
+        Assert.Null(succeeded.Result);
+        Assert.Equal(
+            new TimelineCells("12:00:58", AlphaSub1Path, "result", "result succeeded · The parser module has 3 files."),
+            TimelineText.Cells(succeeded));
+        Assert.Equal("success", TimelineText.Color(succeeded));
+        Assert.Equal(
+            $"12:00:58  {AlphaSub1Path}  [success]result[/]  [success]result succeeded · The parser module has 3 files.[/]",
+            TimelineText.Row(succeeded, AlphaSub1Path.Length));
+
+        Assert.Equal("result failed · API Error: 529 Overloaded. The sub-agent stopped before it finished.", TimelineText.Text(failed));
+        Assert.Equal("error", TimelineText.Color(failed));
+
+        var withoutReport = WithSubAgent(succeeded, s => s with { Report = null });
+        Assert.Equal("result succeeded", TimelineText.Text(withoutReport));
+        Assert.Equal("success", TimelineText.Color(withoutReport));
+        // The first line as the text rows show it: "..." marks more lines.
+        Assert.Equal("result succeeded · First line...", TimelineText.Text(WithSubAgent(succeeded, s => s with { Report = "First line\nSecond line" })));
+
+        // A sub-agent still running in a session that ended reads aborted (SubAgents.StateOf).
+        var aborted = WithSubAgent(succeeded, s => s with { State = SessionState.Running });
+        Assert.Equal("result aborted · The parser module has 3 files.", TimelineText.Text(aborted));
+        Assert.Equal("muted", TimelineText.Color(aborted));
+    }
+
+    [Fact]
+    public void A_sub_agents_result_opens_its_report()
+    {
+        var e = SubAgentEvent(AlphaWorker, SampleRun.AlphaSub1Id, "result");
+
+        AssertPopup(ConversationText.SubAgentResultEntry(e.Session!, SubAgentOf(e)), e);
+        Assert.Equal("Result", TimelineText.PopupTitle(e));
+        Assert.Equal([new PopupSection("Report", "The parser module has 3 files.")], TimelineText.Popup(e));
+        Assert.Empty(TimelineText.Popup(WithSubAgent(e, s => s with { Report = null })));
+    }
+
+    [Fact]
+    public void Without_its_sub_agent_in_the_session_an_event_reads_plainly()
+    {
+        static TimelineEvent Without(TimelineEvent e) =>
+            e with { Session = e.Session! with { Content = e.Session!.Content with { SubAgents = [] } } };
+        var prompt = Without(SubAgentEvent(AlphaWorker, SampleRun.AlphaSub1Id, "prompt"));
+        var result = Without(SubAgentEvent(AlphaWorker, SampleRun.AlphaSub1Id, "result"));
+
+        Assert.Equal(new TimelineCells("12:00:17", "alpha worker #1", "prompt", "sub-agent started"), TimelineText.Cells(prompt));
+        Assert.Equal(new TimelineCells("12:00:58", "alpha worker #1", "result", "result"), TimelineText.Cells(result));
+        Assert.Equal("accent", TimelineText.Color(prompt));
+        Assert.Equal("", TimelineText.Color(result));
+        Assert.Equal("Prompt", TimelineText.PopupTitle(prompt));
+        Assert.Equal([new PopupSection("Prompt", "")], TimelineText.Popup(prompt));
+        Assert.Equal("Result", TimelineText.PopupTitle(result));
+        Assert.Empty(TimelineText.Popup(result));
+    }
+
+    [Fact]
+    public void Calls_are_numbered_among_the_calls_of_their_agent_in_the_row_and_the_pop_up()
+    {
+        // The planner's calls in order: its own, p1's, p2's, p3's, its own; all Copilot turn id "0" but the last.
+        Assert.Equal(
+            ["call 1 · gpt-5.6-luna · context 12.4k", "call 1 · gpt-5.6-luna · context 6.8k", "call 1 · gpt-5.6-luna · context 5.9k",
+             "call 1 · gpt-5.6-luna · context 6.1k", "call 2 · gpt-5.6-luna · context 15.8k"],
+            Enumerable.Range(0, 5).Select(i => TimelineText.Text(SubEvent($"{Planner}:call:{i}"))));
+
+        // The alpha worker's calls in order: its own, sub 1's two, its own, sub 2's.
+        Assert.Equal(
+            ["call 1 · claude-sonnet-4-5 · context 19.2k", "call 1 · claude-haiku-4-5 · context 4.0k", "call 2 · claude-haiku-4-5 · context 5.4k",
+             "call 2 · claude-sonnet-4-5 · context 43.3k", "call 1 · claude-sonnet-4-5 · context 9.8k"],
+            Enumerable.Range(0, 5).Select(i => TimelineText.Text(SubEvent($"{AlphaWorker}:call:{i}"))));
+
+        var subCall = SubEvent(AlphaWorker + ":call:2");
+        Assert.Equal("Call 2", TimelineText.PopupTitle(subCall));
+        Assert.Equal(string.Join('\n', TimelineText.CallLines(subCall.Call!, 1)), Assert.Single(TimelineText.Popup(subCall)).Text);
+        Assert.StartsWith("number: 2\nmodel: claude-haiku-4-5\nstarted: 12:00:50", Assert.Single(TimelineText.Popup(subCall)).Text, StringComparison.Ordinal);
+
+        Assert.Equal("Call 2", TimelineText.PopupTitle(SubEvent(AlphaWorker + ":call:3")));
+        Assert.Equal("Call 1", TimelineText.PopupTitle(SubEvent(AlphaWorker + ":call:4")));
+        Assert.Equal("Call 2", TimelineText.PopupTitle(SubEvent(Planner + ":call:4")));
+    }
+
+    [Fact]
+    public void An_orchestrator_row_whose_entry_has_a_sub_agent_shows_its_path()
+    {
+        var entry = new ProgressEntry(SampleRun.At(11, 59, 30), "planner", "Read spec.md\nsecond line", ProgressKind.Info) { SubAgent = "Map the repo" };
+        var e = new TimelineEvent("progress:0", entry.Time, TimelineKind.Orchestrator, "planner", 0, entry, null, null, null, null);
+        var noSource = e with { Entry = entry with { Source = null } };
+
+        Assert.Equal(new TimelineCells("11:59:30", "orchestrator", "orch", "[planner › Map the repo] Read spec.md"), TimelineText.Cells(e));
+        Assert.Equal("[Map the repo] Read spec.md", TimelineText.Text(noSource));
+        Assert.Equal("Log entry", TimelineText.PopupTitle(e));
+        Assert.Equal<PopupSection>(OverviewText.LogPopup(entry), TimelineText.Popup(e));
+        Assert.Equal<PopupSection>(OverviewText.LogPopup(noSource.Entry!), TimelineText.Popup(noSource));
+    }
+
+    [Fact]
+    public void S_hides_and_shows_every_sub_agent_event_and_the_kind_filters_still_apply_to_them()
+    {
+        Assert.True(TimelineText.HasSubAgents(SampleRun.CreateSubAgents()));
+        Assert.False(TimelineText.HasSubAgents(SampleRun.CreateTimeline()));
+        Assert.False(TimelineText.HasSubAgents(RunSnapshot.Empty(@"C:\Work\Fresh")));
+        Assert.Equal("[accent][[s]] sub-agents[/]", TimelineText.SubAgentLabel(true));
+        Assert.Equal("[muted][[s]] sub-agents[/]", TimelineText.SubAgentLabel(false));
+
+        var own = TimelineText.Visible(SubEvents, TimelineText.AllKinds, null, subAgents: false);
+        Assert.Equal(SubEvents.Where(e => e.AgentId is null), own);
+        Assert.Equal(SubEvents.Count(e => e.AgentId is null), own.Length);
+        Assert.Contains(SubEvents, e => e.AgentId is not null);
+        Assert.Equal(SubEvents, TimelineText.Visible(SubEvents, TimelineText.AllKinds, null));
+
+        var withoutTools = TimelineText.Visible(SubEvents, TimelineText.Toggle(Filter('u'), TimelineText.AllKinds), null);
+        Assert.DoesNotContain(withoutTools, e => e.Kind == TimelineKind.Tool);
+        Assert.Contains(withoutTools, e => e.AgentId is not null && e.Kind == TimelineKind.Prompt);
+        var withoutPrompts = TimelineText.Visible(SubEvents, TimelineText.Toggle(Filter('e'), TimelineText.AllKinds), null);
+        Assert.DoesNotContain(withoutPrompts, e => e.Kind is TimelineKind.Prompt or TimelineKind.Result);
+
+        Assert.Equal(60, TimelineText.Visible(Events, TimelineText.AllKinds, null, subAgents: false).Length);
+    }
+
+    [Fact]
+    public void The_task_filter_keeps_sub_agent_events_with_their_sessions_task()
+    {
+        var alpha = TimelineText.Visible(SubEvents, TimelineText.AllKinds, "alpha");
+        var alphaSubs = SubEvents.Where(e => e.AgentId is SampleRun.AlphaSub1Id or SampleRun.AlphaSub2Id).ToList();
+
+        Assert.Equal(11, alphaSubs.Count);
+        Assert.All(alphaSubs, e => Assert.Contains(e, alpha));
+        Assert.DoesNotContain(alpha, e => e.AgentId is SampleRun.BetaSub1Id || e.Session?.Files.TaskId is "beta");
+        Assert.Equal(SubEvents.Count(e => e.Group is "alpha" or "run"), alpha.Length);
+
+        var planner = TimelineText.Visible(SubEvents, TimelineText.AllKinds, "planner");
+        Assert.Equal(SubEvents.Count(e => e.Session?.Files.Key == Planner), planner.Count(e => e.Group == "planner"));
+        Assert.Equal(16, planner.Count(e => e.AgentId is not null));
     }
 
     private static void AssertPopup(ConversationEntry expected, TimelineEvent e)
