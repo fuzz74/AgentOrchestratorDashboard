@@ -74,14 +74,16 @@ internal sealed class TempDatabase : IDisposable
 
     /// <summary>Commits one row of <c>assistant_usage_events</c>; a null value is stored as NULL.</summary>
     public void Insert(string sessionId, string? createdAt, long? input, long? cacheRead, long? cacheWrite, long? output,
-        long? reasoning = null, long? nanoAiu = null, long? durationMs = null, string? finishReason = null)
+        long? reasoning = null, long? nanoAiu = null, long? durationMs = null, string? finishReason = null,
+        string? agentId = null, string? parentToolCallId = null)
     {
         using var command = Writer().CreateCommand();
         command.CommandText = """
             INSERT INTO assistant_usage_events (session_id, model, created_at, input_tokens, cache_read_tokens,
-                cache_write_tokens, output_tokens, reasoning_tokens, total_nano_aiu, duration_ms, finish_reason)
+                cache_write_tokens, output_tokens, reasoning_tokens, total_nano_aiu, duration_ms, finish_reason,
+                agent_id, parent_tool_call_id)
             VALUES (@session, 'gpt-6-sol', @created, @input, @cacheRead, @cacheWrite, @output, @reasoning, @aiu,
-                @duration, @finish)
+                @duration, @finish, @agent, @parent)
             """;
         command.Parameters.AddWithValue("@session", sessionId);
         command.Parameters.AddWithValue("@created", (object?)createdAt ?? DBNull.Value);
@@ -93,6 +95,8 @@ internal sealed class TempDatabase : IDisposable
         command.Parameters.AddWithValue("@aiu", (object?)nanoAiu ?? DBNull.Value);
         command.Parameters.AddWithValue("@duration", (object?)durationMs ?? DBNull.Value);
         command.Parameters.AddWithValue("@finish", (object?)finishReason ?? DBNull.Value);
+        command.Parameters.AddWithValue("@agent", (object?)agentId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@parent", (object?)parentToolCallId ?? DBNull.Value);
         command.ExecuteNonQuery();
     }
 

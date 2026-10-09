@@ -27,36 +27,55 @@ public static class MergeData
     }
 
     public static Session SessionOf(Provider provider, SessionFiles files, string? sessionId = null,
-        IEnumerable<ModelCall>? calls = null, DateTimeOffset? startedAt = null, SessionInit? init = null) =>
+        IEnumerable<ModelCall>? calls = null, DateTimeOffset? startedAt = null, SessionInit? init = null,
+        IEnumerable<SubAgent>? subAgents = null) =>
         new(files, provider, SessionState.Running, "Prompt", startedAt,
-            new SessionContent(sessionId, "model-a", init, [.. calls ?? []], [], null, startedAt, startedAt, 0));
+            new SessionContent(sessionId, "model-a", init, [.. calls ?? []], [], null, startedAt, startedAt, 0)
+            {
+                SubAgents = [.. subAgents ?? []],
+            });
 
     public static Session ClaudeSession(SessionFiles files, string? sessionId = "c-1", IEnumerable<ModelCall>? calls = null,
-        DateTimeOffset? startedAt = null, SessionInit? init = null) =>
-        SessionOf(Provider.Claude, files, sessionId, calls, startedAt, init);
+        DateTimeOffset? startedAt = null, SessionInit? init = null, IEnumerable<SubAgent>? subAgents = null) =>
+        SessionOf(Provider.Claude, files, sessionId, calls, startedAt, init, subAgents);
 
     public static Session CopilotSession(SessionFiles files, string? sessionId = "p-1", IEnumerable<ModelCall>? calls = null,
-        DateTimeOffset? startedAt = null) =>
-        SessionOf(Provider.Copilot, files, sessionId, calls, startedAt);
+        DateTimeOffset? startedAt = null, IEnumerable<SubAgent>? subAgents = null) =>
+        SessionOf(Provider.Copilot, files, sessionId, calls, startedAt, subAgents: subAgents);
+
+    // A running sub-agent with the id; toolCallId "" is unknown, as the parsers set it.
+    public static SubAgent Sub(string id, string toolCallId = "", string? parentId = null) =>
+        new(id, parentId, toolCallId, SubAgents.Name(id), id, "explore", "model-b", false, "", null, null,
+            SessionState.Running, null);
 
     public static Session UnknownSession(SessionFiles files) =>
         new(files, Provider.Unknown, SessionState.Running, "", null, SessionContent.Empty);
 
     public static SessionInit Init(string? cwd = null, string? cliVersion = null) => new(cwd, "default", cliVersion, [], []);
 
-    public static ModelCall Call(string id, DateTimeOffset? startedAt = null, TokenUsage? usage = null) =>
-        new(id, "model-a", startedAt, usage);
+    public static ModelCall Call(string id, DateTimeOffset? startedAt = null, TokenUsage? usage = null, string? agentId = null) =>
+        new(id, "model-a", startedAt, usage) { AgentId = agentId };
 
     public static CallFigures Figures(string? callId = null, DateTimeOffset? time = null, long input = 10, long? output = 5,
-        long? thinking = null, long? nanoAiu = null, TimeSpan? duration = null, string? stopReason = null) =>
-        new(callId, time, new TokenUsage(input, 100, 20, output), thinking, nanoAiu, duration, stopReason);
+        long? thinking = null, long? nanoAiu = null, TimeSpan? duration = null, string? stopReason = null,
+        string? agentId = null, string? parentToolCallId = null) =>
+        new(callId, time, new TokenUsage(input, 100, 20, output), thinking, nanoAiu, duration, stopReason)
+        {
+            AgentId = agentId,
+            ParentToolCallId = parentToolCallId,
+        };
 
-    public static StoreData Stored(string? cliVersion = null, IEnumerable<CallFigures>? calls = null) =>
+    // subAgents: the sub-agent transcripts by SubAgent.Id; null keeps StoreData.NoSubAgents.
+    public static StoreData Stored(string? cliVersion = null, IEnumerable<CallFigures>? calls = null,
+        IEnumerable<(string Id, StoreData Data)>? subAgents = null) =>
         StoreData.Empty with
         {
             CliVersion = cliVersion,
             SystemPrompt = ["You are an agent."],
             Calls = [.. calls ?? []],
+            SubAgents = subAgents is null
+                ? StoreData.NoSubAgents
+                : subAgents.ToImmutableDictionary(s => s.Id, s => s.Data, StringComparer.Ordinal),
         };
 
     public static UsageRows Rows(params (string Id, CallFigures[] Rows)[] bySession) =>

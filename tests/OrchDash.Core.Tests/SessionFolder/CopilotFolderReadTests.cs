@@ -4,7 +4,7 @@ using Xunit;
 
 namespace OrchDash.Core.Tests.SessionFolder;
 
-/// <summary>Read on events.jsonl files the tests write (spec 12.1, 12.2).</summary>
+/// <summary>Read on events.jsonl files the tests write (spec 12.1, 12.2, 36.6).</summary>
 public sealed class CopilotFolderReadTests : IDisposable
 {
     private const string Id = "11111111-2222-3333-4444-555555555555";
@@ -20,6 +20,9 @@ public sealed class CopilotFolderReadTests : IDisposable
 
     private const string Other =
         """{"type":"assistant.turn_start","data":{"turnId":"0"},"id":"4","timestamp":"2026-10-03T10:00:03.000Z","parentId":"3"}""";
+
+    private const string FromSubAgent =
+        """{"type":"system.message","agentId":"agent-p1","data":{"role":"system","content":"sub-agent","contentBlocks":[{"content":"sub-agent block"}]},"id":"5","timestamp":"2026-10-03T10:00:04.000Z","parentId":"4"}""";
 
     private readonly TempSessionState _temp = new();
 
@@ -74,6 +77,41 @@ public sealed class CopilotFolderReadTests : IDisposable
 
         _temp.WriteEvents(Id, Lines(Start, WithoutBlocks, WithBlocks));
         Assert.Equal(["first", "second"], new CopilotFolderStore(_temp.Dir).Read(Id, null)!.SystemPrompt);
+    }
+
+    [Fact]
+    public void A_system_message_with_an_agent_id_does_not_replace_the_system_prompt()
+    {
+        _temp.WriteEvents(Id, Lines(Start, WithBlocks, FromSubAgent));
+        Assert.Equal(["first", "second"], new CopilotFolderStore(_temp.Dir).Read(Id, null)!.SystemPrompt);
+
+        _temp.WriteEvents(Id, Lines(Start, FromSubAgent));
+        Assert.Empty(new CopilotFolderStore(_temp.Dir).Read(Id, null)!.SystemPrompt);
+    }
+
+    [Fact]
+    public void A_later_system_message_of_the_agent_itself_still_wins_after_one_with_an_agent_id()
+    {
+        _temp.WriteEvents(Id, Lines(Start, WithBlocks, FromSubAgent, WithoutBlocks));
+        Assert.Equal(["only content"], new CopilotFolderStore(_temp.Dir).Read(Id, null)!.SystemPrompt);
+
+        var emptyAgentId = WithBlocks.Replace("\"type\":\"system.message\",", "\"type\":\"system.message\",\"agentId\":\"\",");
+        _temp.WriteEvents(Id, Lines(Start, WithoutBlocks, FromSubAgent, emptyAgentId));
+        Assert.Equal(["first", "second"], new CopilotFolderStore(_temp.Dir).Read(Id, null)!.SystemPrompt);
+    }
+
+    [Fact]
+    public void An_appended_system_message_with_an_agent_id_keeps_the_system_prompt()
+    {
+        _temp.WriteEvents(Id, Lines(Start, WithBlocks));
+        var store = new CopilotFolderStore(_temp.Dir);
+        Assert.Equal(["first", "second"], store.Read(Id, null)!.SystemPrompt);
+
+        _temp.AppendEvents(Id, Lines(FromSubAgent));
+        var data = store.Read(Id, null);
+
+        Assert.Equal(["first", "second"], data!.SystemPrompt);
+        Assert.Equal(0, data.UnparsedLines);
     }
 
     [Fact]
