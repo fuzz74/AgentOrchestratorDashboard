@@ -8,7 +8,8 @@ namespace OrchDash.Core.Claude;
 
 /// <summary>
 /// Turns the lines of a Claude <c>events.jsonl</c> (stream-json output of headless Claude Code)
-/// into <see cref="SessionContent"/> by the Claude event table of spec section 4.3.
+/// into <see cref="SessionContent"/> by the Claude event table of spec section 4.3, with the sub-agent rules of
+/// 35.1-35.3, 35.7 and 35.8.
 /// </summary>
 public sealed class ClaudeSessionParser : ISessionParser
 {
@@ -20,6 +21,9 @@ public sealed class ClaudeSessionParser : ISessionParser
     private readonly HashSet<string> _callIds = new(StringComparer.Ordinal);
     private readonly ImmutableArray<ConversationItem>.Builder _items = ImmutableArray.CreateBuilder<ConversationItem>();
     private readonly Dictionary<string, int> _toolCallIndex = new(StringComparer.Ordinal);
+    private readonly List<SubAgent> _subAgents = [];
+    private readonly Dictionary<string, int> _subAgentIndex = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _taskToolUseIds = new(StringComparer.Ordinal);
 
     private string? _sessionId;
     private string? _model;
@@ -55,11 +59,25 @@ public sealed class ClaudeSessionParser : ISessionParser
         }
 
         var subtype = ClaudeJson.GetString(root, "subtype");
+        if (type == "system" && subtype is "task_started" or "task_notification")
+        {
+            // 35.3: they only start and finish sub-agents; a task of another kind (local_bash) names none.
+            AddTask(root, subtype);
+            return;
+        }
+
         if (!IsKnown(type, subtype))
             return;
 
         var time = ReadTimestamp(root);
         ApplyCommon(root, time);
+        if (_result is not null && (type is "assistant" or "user" || (type == "system" && subtype == "init")))
+        {
+            // 35.8: another turn has started; the next result event sets the result again.
+            _result = null;
+            Changed();
+        }
+
         switch (type)
         {
             case "system":
@@ -83,6 +101,7 @@ public sealed class ClaudeSessionParser : ISessionParser
         _firstEventAt, _lastEventAt, _unparsedLines)
     {
         RateLimit = _rateLimit,
+        SubAgents = [.. _subAgents],
     };
 
     private static bool IsKnown(string? type, string? subtype) => type switch
@@ -137,6 +156,31 @@ public sealed class ClaudeSessionParser : ISessionParser
         }
     }
 
+    /// <summary>
+    /// 35.3: task_started remembers which tool use a task id belongs to; task_notification finishes the
+    /// sub-agent of its tool_use_id, else of its task_id through that task_started. Neither has a timestamp
+    /// as a rule, so a notification finishes at the latest event time seen so far.
+    /// </summary>
+    private void AddTask(JsonElement root, string? subtype)
+    {
+        var taskId = ClaudeJson.GetString(root, "task_id");
+        var toolUseId = ClaudeJson.GetString(root, "tool_use_id");
+        if (subtype == "task_started")
+        {
+            if (!string.IsNullOrEmpty(taskId) && !string.IsNullOrEmpty(toolUseId))
+                _taskToolUseIds[taskId] = toolUseId;
+            return;
+        }
+
+        if (string.IsNullOrEmpty(toolUseId) && taskId is not null)
+            _taskToolUseIds.TryGetValue(taskId, out toolUseId);
+        if (toolUseId is null || !_subAgentIndex.TryGetValue(toolUseId, out var index))
+            return;
+
+        var state = ClaudeJson.GetString(root, "status") == "failed" ? SessionState.Failed : SessionState.Succeeded;
+        FinishSubAgent(index, state, ClaudeJson.GetString(root, "summary"), ReadTimestamp(root) ?? _lastEventAt);
+    }
+
     /// <summary>The rate limit table of spec 4.3; seen at the latest event time so far.</summary>
     private RateLimit ReadRateLimit(JsonElement root)
     {
@@ -189,16 +233,21 @@ public sealed class ClaudeSessionParser : ISessionParser
 
     private void AddAssistant(JsonElement root, DateTimeOffset? time)
     {
+        var agentId = AgentOf(root, time);
         if (!ClaudeJson.TryGetObject(root, "message", out var message))
             return;
 
+        // 35.7: the session's model comes from the agent's own events only.
         var model = ClaudeJson.GetString(message, "model");
-        SetModel(model);
+        if (agentId is null)
+            SetModel(model);
 
         var callId = ClaudeJson.GetString(message, "id");
         if (callId is not null && _callIds.Add(callId))
         {
-            _calls.Add(new ModelCall(callId, model, time, ReadCallUsage(message)));
+            _calls.Add(new ModelCall(callId, model, time, ReadCallUsage(message)) { AgentId = agentId });
+            if (agentId is not null)
+                SetSubAgentModel(agentId, model);
             Changed();
         }
 
@@ -210,17 +259,39 @@ public sealed class ClaudeSessionParser : ISessionParser
             switch (ClaudeJson.GetString(block, "type"))
             {
                 case "text" when ClaudeJson.GetString(block, "text") is { } text:
-                    AddItem(new AssistantText(callId, time, text));
+                    AddItem(new AssistantText(callId, time, text) { AgentId = agentId });
                     break;
                 case "thinking":
-                    AddItem(new Thinking(callId, time, ClaudeJson.GetString(block, "thinking") ?? "", _thinkingTokens));
+                    var thinking = ClaudeJson.GetString(block, "thinking") ?? "";
+                    AddItem(new Thinking(callId, time, thinking, _thinkingTokens) { AgentId = agentId });
                     _thinkingTokens = null;
                     break;
                 case "tool_use":
-                    AddToolCall(block, callId, time);
+                    AddToolCall(block, callId, time, agentId);
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// 35.2: the sub-agent an assistant or user event belongs to, by its parent_tool_use_id; null for the agent's
+    /// own. A sub-agent seen here for the first time is added from the event's task_description and subagent_type.
+    /// </summary>
+    private string? AgentOf(JsonElement root, DateTimeOffset? time)
+    {
+        if (ClaudeJson.GetString(root, "parent_tool_use_id") is not { Length: > 0 } agentId)
+            return null;
+
+        if (!_subAgentIndex.ContainsKey(agentId))
+        {
+            var description = ClaudeJson.GetString(root, "task_description");
+            AddSubAgent(new SubAgent(
+                agentId, null, agentId, SubAgents.Name(description), description,
+                ClaudeJson.GetString(root, "subagent_type"), null, false, "",
+                time, null, SessionState.Running, null));
+        }
+
+        return agentId;
     }
 
     private static TokenUsage? ReadCallUsage(JsonElement message) =>
@@ -232,7 +303,7 @@ public sealed class ClaudeSessionParser : ISessionParser
                 null)
             : null;
 
-    private void AddToolCall(JsonElement block, string? callId, DateTimeOffset? time)
+    private void AddToolCall(JsonElement block, string? callId, DateTimeOffset? time, string? agentId)
     {
         var toolId = ClaudeJson.GetString(block, "id") ?? "";
         var name = ClaudeJson.GetString(block, "name") ?? "";
@@ -242,11 +313,24 @@ public sealed class ClaudeSessionParser : ISessionParser
 
         if (toolId.Length > 0)
             _toolCallIndex[toolId] = _items.Count;
-        AddItem(new ToolCall(callId, time, toolId, name, inputJson, summary, null));
+        AddItem(new ToolCall(callId, time, toolId, name, inputJson, summary, null) { AgentId = agentId });
+
+        // 35.1: an Agent (formerly Task) tool use starts a sub-agent; its first appearance wins.
+        if (name is "Agent" or "Task" && toolId.Length > 0 && !_subAgentIndex.ContainsKey(toolId))
+        {
+            var description = ClaudeJson.GetString(input, "description");
+            AddSubAgent(new SubAgent(
+                toolId, agentId, toolId, SubAgents.Name(description), description,
+                ClaudeJson.GetString(input, "subagent_type"), null,
+                ClaudeJson.GetBoolean(input, "run_in_background") == true,
+                ClaudeJson.GetString(input, "prompt") ?? "",
+                time, null, SessionState.Running, null));
+        }
     }
 
     private void AddUser(JsonElement root, DateTimeOffset? time)
     {
+        var agentId = AgentOf(root, time);
         if (!ClaudeJson.TryGetObject(root, "message", out var message) ||
             !ClaudeJson.TryGetProperty(message, "content", out var content))
             return;
@@ -254,7 +338,7 @@ public sealed class ClaudeSessionParser : ISessionParser
         var isSynthetic = ClaudeJson.GetBoolean(root, "isSynthetic") ?? false;
         if (ClaudeJson.AsString(content) is { } text)
         {
-            AddItem(new UserText(null, time, text, isSynthetic));
+            AddUserText(text, time, isSynthetic, agentId);
             return;
         }
 
@@ -266,7 +350,7 @@ public sealed class ClaudeSessionParser : ISessionParser
             switch (ClaudeJson.GetString(block, "type"))
             {
                 case "text" when ClaudeJson.GetString(block, "text") is { } blockText:
-                    AddItem(new UserText(null, time, blockText, isSynthetic));
+                    AddUserText(blockText, time, isSynthetic, agentId);
                     break;
                 case "tool_result":
                     AddToolResult(root, block, time);
@@ -275,21 +359,39 @@ public sealed class ClaudeSessionParser : ISessionParser
         }
     }
 
+    private void AddUserText(string text, DateTimeOffset? time, bool isSynthetic, string? agentId)
+    {
+        // 35.2: a sub-agent's user text that repeats its prompt is not added; the SubAgent holds the prompt.
+        if (agentId is not null && _subAgentIndex.TryGetValue(agentId, out var index) && text == _subAgents[index].Prompt)
+            return;
+
+        AddItem(new UserText(null, time, text, isSynthetic) { AgentId = agentId });
+    }
+
     private void AddToolResult(JsonElement root, JsonElement block, DateTimeOffset? time)
     {
-        if (ClaudeJson.GetString(block, "tool_use_id") is not { } toolId ||
-            !_toolCallIndex.TryGetValue(toolId, out var index))
+        var toolId = ClaudeJson.GetString(block, "tool_use_id");
+        var isError = ClaudeJson.GetBoolean(block, "is_error") ?? false;
+        var content = ReadResultContent(block);
+
+        // 35.3 fallback: the hand-back of a foreground sub-agent that no notification finished. A sub-agent's
+        // ToolCallId equals its Id here.
+        var namesSubAgent = false;
+        if (toolId is not null && _subAgentIndex.TryGetValue(toolId, out var subIndex))
         {
-            CountUnparsed();
+            namesSubAgent = true;
+            if (!_subAgents[subIndex].Background)
+                FinishSubAgent(subIndex, isError ? SessionState.Failed : SessionState.Succeeded, content, time ?? _lastEventAt);
+        }
+
+        if (toolId is null || !_toolCallIndex.TryGetValue(toolId, out var index))
+        {
+            if (!namesSubAgent)
+                CountUnparsed();
             return;
         }
 
-        var result = new ToolResult(
-            time,
-            ClaudeJson.GetBoolean(block, "is_error") ?? false,
-            ReadResultContent(block),
-            ReadDiff(root),
-            null);
+        var result = new ToolResult(time, isError, content, ReadDiff(root), null);
         _items[index] = (ToolCall)_items[index] with { Result = result };
         Changed();
     }
@@ -421,6 +523,33 @@ public sealed class ClaudeSessionParser : ISessionParser
             return;
 
         _model = model;
+        Changed();
+    }
+
+    private void AddSubAgent(SubAgent subAgent)
+    {
+        _subAgentIndex[subAgent.Id] = _subAgents.Count;
+        _subAgents.Add(subAgent);
+        Changed();
+    }
+
+    /// <summary>35.7: a sub-agent's model is the model of its first call (the first that names one).</summary>
+    private void SetSubAgentModel(string agentId, string? model)
+    {
+        if (model is null || !_subAgentIndex.TryGetValue(agentId, out var index) || _subAgents[index].Model is not null)
+            return;
+
+        _subAgents[index] = _subAgents[index] with { Model = model };
+        Changed();
+    }
+
+    /// <summary>35.3: finishes a running sub-agent; a finished one stays as it is (4.5).</summary>
+    private void FinishSubAgent(int index, SessionState state, string? report, DateTimeOffset? finishedAt)
+    {
+        if (_subAgents[index].State != SessionState.Running)
+            return;
+
+        _subAgents[index] = _subAgents[index] with { State = state, FinishedAt = finishedAt, Report = report };
         Changed();
     }
 
