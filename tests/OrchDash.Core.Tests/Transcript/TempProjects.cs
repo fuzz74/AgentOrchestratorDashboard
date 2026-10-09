@@ -32,6 +32,26 @@ internal sealed class TempProjects : IDisposable
         return path;
     }
 
+    /// <summary>
+    /// Writes the sub-agent transcript <c>&lt;ProjectsDir&gt;/&lt;folder&gt;/&lt;sessionId&gt;/subagents/agent-&lt;x&gt;.jsonl</c>
+    /// and, unless <paramref name="metaJson"/> is null, its meta file. Gives the transcript's path.
+    /// </summary>
+    public string WriteSubAgent(string folder, string sessionId, string x, string transcriptText, string? metaJson)
+    {
+        var directory = Path.Combine(ProjectsDir, folder, sessionId, "subagents");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"agent-{x}.jsonl");
+        File.WriteAllText(path, transcriptText, Utf8);
+        if (metaJson is not null)
+            WriteMeta(path, metaJson);
+        return path;
+    }
+
+    /// <summary>The <c>agent-&lt;x&gt;.meta.json</c> next to the sub-agent transcript <c>agent-&lt;x&gt;.jsonl</c>.</summary>
+    public static string MetaPath(string transcriptPath) => Path.ChangeExtension(transcriptPath, ".meta.json");
+
+    public static void WriteMeta(string transcriptPath, string metaJson) => File.WriteAllText(MetaPath(transcriptPath), metaJson, Utf8);
+
     public static void Append(string path, string text) => File.AppendAllText(path, text, Utf8);
 
     /// <summary>Opens the file so that no other handle can open it.</summary>
