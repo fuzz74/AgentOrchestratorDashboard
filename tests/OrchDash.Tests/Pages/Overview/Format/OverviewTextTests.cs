@@ -10,6 +10,7 @@ public sealed class OverviewTextTests
 {
     private readonly RunSnapshot _run = SampleRun.Create();
     private readonly DateTimeOffset _now = SampleRun.At(12, 30, 0);
+    private readonly RunSnapshot _subs = SampleRun.CreateSubAgents();
 
     private TaskView Task(string id) => _run.Tasks.Single(t => t.Id == id);
 
@@ -511,5 +512,246 @@ public sealed class OverviewTextTests
         var task = Task("alpha") with { Summary = "keeps [brackets]" };
 
         Assert.Equal("keeps [brackets]", OverviewText.TaskPopup(task, _run).Single(s => s.Heading == "Summary").Text);
+    }
+
+    private Session SubSession(string key) => _subs.Sessions.Single(s => s.Files.Key == key);
+
+    private AgentRow Child(string sessionKey, string agentId) =>
+        AgentTree.Rows([SubSession(sessionKey)]).Single(row => row.SubAgent.Id == agentId);
+
+    private RunSnapshot WithSession(Session session) =>
+        _subs with { Sessions = [.. _subs.Sessions.Select(s => s.Files.Key == session.Files.Key ? session : s)] };
+
+    [Fact]
+    public void Task_rows_follow_each_task_with_the_child_rows_of_its_sessions()
+    {
+        var rows = OverviewText.TaskRows(_subs);
+
+        Assert.Equal(
+        [
+            "alpha", $"{SampleRun.AlphaWorkerKey}|{SampleRun.AlphaSub1Id}", $"{SampleRun.AlphaWorkerKey}|{SampleRun.AlphaSub2Id}",
+            "gamma",
+            "beta", $"{SampleRun.BetaWorkerKey}|{SampleRun.BetaSub1Id}",
+            "delta",
+            "epsilon",
+        ], rows.Select(r => r.Key));
+        Assert.Equal(["├", "└", "└"], rows.Select(r => r.Child?.Prefix).OfType<string>());
+        Assert.All(rows, r => Assert.Equal(r.Task.Id, r.Child?.Session.Files.TaskId ?? r.Task.Id));
+    }
+
+    [Fact]
+    public void Task_rows_without_sub_agents_are_the_tasks_alone()
+    {
+        var rows = OverviewText.TaskRows(_run);
+
+        Assert.Equal(["alpha", "gamma", "beta", "delta", "epsilon"], rows.Select(r => r.Key));
+        Assert.All(rows, r => Assert.Null(r.Child));
+    }
+
+    [Fact]
+    public void Task_rows_make_the_sub_agents_of_all_the_tasks_sessions_siblings()
+    {
+        var review = SubSession(SampleRun.AlphaReviewKey);
+        var sub = new SubAgent("toolu_review_sub", null, "toolu_review_sub", "Check the tests", null, "Explore", null,
+            Background: false, Prompt: "", StartedAt: null, FinishedAt: null, SessionState.Succeeded, Report: null);
+        var run = WithSession(review with { Content = review.Content with { SubAgents = [sub] } });
+
+        var children = OverviewText.TaskRows(run).Where(r => r.Task.Id == "alpha").Select(r => r.Child).OfType<AgentRow>().ToArray();
+
+        Assert.Equal(["├", "├", "└"], children.Select(c => c.Prefix));
+        Assert.Equal("[success]    └✔ Check the tests · reviewer #1.1 · 0 tool calls · -[/]", OverviewText.ChildRow(children[2], _now, 100));
+    }
+
+    [Fact]
+    public void Child_row_starts_at_the_id_column_in_the_colour_of_its_state()
+    {
+        var alpha = OverviewText.TaskRow(_subs.Tasks.Single(t => t.Id == "alpha"), _now, 7, 16, 24);
+        var child = OverviewText.ChildRow(Child(SampleRun.AlphaWorkerKey, SampleRun.AlphaSub1Id), _now, 100);
+
+        Assert.Equal("[success]    ├✔ Survey the parser module · worker #1 · 2 tool calls · 41s[/]", child);
+        Assert.Equal(alpha.IndexOf("alpha", StringComparison.Ordinal), child.IndexOf(" ├", StringComparison.Ordinal));
+        Assert.Equal(
+            "[error]    └✖ Check the public API surface of… · worker #1 · 1 tool call · 44s[/]",
+            OverviewText.ChildRow(Child(SampleRun.AlphaWorkerKey, SampleRun.AlphaSub2Id), _now, 100));
+        Assert.Equal(
+            "[primary]    └▶ Survey CLI flags · worker #1 · 1 tool call · 50s[/]",
+            OverviewText.ChildRow(Child(SampleRun.BetaWorkerKey, SampleRun.BetaSub1Id), _now, 100));
+    }
+
+    [Fact]
+    public void Child_row_of_a_running_sub_agent_in_an_ended_session_is_aborted()
+    {
+        var beta = SubSession(SampleRun.BetaWorkerKey) with { State = SessionState.Failed };
+
+        Assert.Equal(
+            "[muted]    └◌ Survey CLI flags · worker #1 · 1 tool call · 50s[/]",
+            OverviewText.ChildRow(Assert.Single(AgentTree.Rows([beta])), _now, 100));
+    }
+
+    [Fact]
+    public void Child_row_counts_the_sub_agents_own_tool_calls_and_keeps_the_nesting()
+    {
+        // "Map the repo" has the task call that starts "Read the spec" and a glob; the view inside "Read the spec" is not its.
+        Assert.Equal(
+            "[success]    ├✔ Map the repo · planner #1 · 2 tool calls · 28s[/]",
+            OverviewText.ChildRow(Child(SampleRun.PlannerKey, SampleRun.PlannerSub1Id), _now, 100));
+        Assert.Equal(
+            "[success]    │ └✔ Read the spec · planner #1 · 1 tool call · 14s[/]",
+            OverviewText.ChildRow(Child(SampleRun.PlannerKey, SampleRun.PlannerSub2Id), _now, 100));
+    }
+
+    [Fact]
+    public void Child_row_is_cut_to_the_row_width()
+    {
+        var row = Child(SampleRun.AlphaWorkerKey, SampleRun.AlphaSub1Id);
+        const string whole = "    ├✔ Survey the parser module · worker #1 · 2 tool calls · 41s";
+
+        Assert.Equal($"[success]{whole}[/]", OverviewText.ChildRow(row, _now, whole.Length));
+        Assert.Equal("[success]    ├✔ Survey the parser mo...[/]", OverviewText.ChildRow(row, _now, 30));
+    }
+
+    [Fact]
+    public void Running_block_counts_the_agents_own_events_and_lists_its_sub_agents()
+    {
+        // The header, the context and the items leave out the sub-agents' calls and items; finished sub-agents show no
+        // item, and the haiku model has no known context window.
+        Assert.Equal(
+        [
+            "alpha · [cyan]Worker[/] · #1 · claude-sonnet-4-5 · 4 tool calls · 10s ago",
+            "  context 43.3k of 200.0k (22 %)",
+            "  Agent Survey the parser module",
+            "  [muted]thinking (~1.2k tokens, no text)[/]",
+            "  Bash dotnet test tests/Alpha",
+            "  Agent Check the public API surface of the alpha parser",
+            "  The parser is in place and all alpha tests pass.",
+            "[success]├✔ Survey the parser module[/] · 2 tool calls · context 5.4k",
+            "[error]└✖ Check the public API surface of…[/] · 1 tool call · context 9.8k of 200.0k (5 %)",
+        ], OverviewText.RunningBlock(SubSession(SampleRun.AlphaWorkerKey), _subs, SampleRun.At(12, 6, 0)));
+    }
+
+    [Fact]
+    public void Running_block_shows_the_latest_item_of_a_running_sub_agent()
+    {
+        Assert.Equal(
+        [
+            "beta · [cyan]Worker[/] · #1 · claude-sonnet-4-5 · 4 tool calls · 30s ago",
+            "  context 34.5k of 200.0k (17 %)",
+            "  Read src/Alpha/Parser.cs",
+            "  Grep Parse\\( in src",
+            "  Now I will write the checker and build it.",
+            "  Agent Survey CLI flags",
+            "  Bash dotnet build src/Beta",
+            "[primary]└▶ Survey CLI flags[/] · 1 tool call · context 3.6k · Read src/Beta/Program.cs",
+        ], OverviewText.RunningBlock(SubSession(SampleRun.BetaWorkerKey), _subs, _now));
+    }
+
+    [Fact]
+    public void Running_block_takes_the_sub_agents_context_window_from_its_model()
+    {
+        var alpha = SubSession(SampleRun.AlphaWorkerKey);
+        var haiku = alpha with { Content = alpha.Content with { Model = "claude-haiku-4-5" } };
+        var run = WithSession(haiku);
+
+        Assert.Equal(
+            "[primary]└▶ Survey CLI flags[/] · 1 tool call · context 3.6k of 200.0k (2 %) · Read src/Beta/Program.cs",
+            OverviewText.RunningBlock(SubSession(SampleRun.BetaWorkerKey), run, _now)[^1]);
+    }
+
+    [Fact]
+    public void Running_block_leaves_out_what_a_sub_agent_does_not_have_yet_and_the_item_once_it_ended()
+    {
+        var beta = SubSession(SampleRun.BetaWorkerKey);
+        var started = beta with
+        {
+            Content = beta.Content with
+            {
+                Calls = SubAgents.Calls(beta.Content, null),
+                Items = SubAgents.Items(beta.Content, null),
+            },
+        };
+        var ended = beta with { State = SessionState.Failed };
+
+        Assert.Equal("[primary]└▶ Survey CLI flags[/] · 0 tool calls", OverviewText.RunningBlock(started, _subs, _now)[^1]);
+        Assert.Equal("[muted]└◌ Survey CLI flags[/] · 1 tool call · context 3.6k", OverviewText.RunningBlock(ended, _subs, _now)[^1]);
+    }
+
+    [Fact]
+    public void Running_block_lists_nested_sub_agents_with_their_prefixes()
+    {
+        Assert.Equal(
+        [
+            "Planner · [blue]Planner[/] · #1 · gpt-5.6-luna · 2 tool calls · 2s ago",
+            "  context 15.8k",
+            "  I will map the repo first, then survey the tests.",
+            "  task Map the repo",
+            "  task Survey the tests",
+            "  The plan has five tasks in three waves: alpha and gamma, then beta and delta, then epsilon.",
+            "[success]├✔ Map the repo[/] · 2 tool calls · context 6.8k",
+            "[success]│ └✔ Read the spec[/] · 1 tool call · context 5.9k",
+            "[success]└✔ Survey the tests[/] · 1 tool call · context 6.1k",
+        ], OverviewText.RunningBlock(SubSession(SampleRun.PlannerKey), _subs, SampleRun.At(12, 0, 0)));
+    }
+
+    [Fact]
+    public void Log_line_and_popup_show_the_sub_agent_after_the_source()
+    {
+        var entry = _subs.Progress[0];
+        var alone = entry with { Source = null };
+
+        Assert.Equal("[muted]11:59:30 [[planner › Map the repo]] Glob **/*[/]", OverviewText.LogLine(entry));
+        Assert.Equal("11:59:30 · planner › Map the repo · Activity", Assert.Single(OverviewText.LogPopup(entry)).Heading);
+        Assert.Equal("[muted]11:59:30 [[Map the repo]] Glob **/*[/]", OverviewText.LogLine(alone));
+        Assert.Equal("11:59:30 · Map the repo · Activity", Assert.Single(OverviewText.LogPopup(alone)).Heading);
+    }
+
+    [Fact]
+    public void Task_popup_lists_each_sessions_sub_agents_after_its_line()
+    {
+        Assert.Equal(
+            "Worker · #1 · Succeeded · claude-sonnet-4-5\n" +
+            "  ├ Survey the parser module · Explore · Succeeded · claude-haiku-4-5\n" +
+            "  └ Check the public API surface of… · general-purpose · Failed · claude-sonnet-4-5\n" +
+            "Reviewer · #1.1 · Succeeded · gpt-5.1",
+            OverviewText.TaskPopup(_subs.Tasks.Single(t => t.Id == "alpha"), _subs).Single(s => s.Heading == "Sessions").Text);
+    }
+
+    [Fact]
+    public void Task_popup_keeps_the_nesting_and_shows_unknown_values_as_dashes_and_the_state_of_an_ended_session()
+    {
+        var planner = SubSession(SampleRun.PlannerKey);
+        var subs = planner.Content.SubAgents;
+        var session = planner with
+        {
+            Files = planner.Files with { TaskId = "delta" },
+            State = SessionState.Failed,
+            Content = planner.Content with
+            {
+                SubAgents = [subs[0], subs[1] with { State = SessionState.Running }, subs[2] with { AgentType = null, Model = null }],
+            },
+        };
+
+        Assert.Equal(
+            "Planner · #1 · Failed · gpt-5.6-luna\n" +
+            "  ├ Map the repo · explore · Succeeded · gpt-5.6-luna\n" +
+            "  │ └ Read the spec · explore · Aborted · gpt-5.6-luna\n" +
+            "  └ Survey the tests · - · Succeeded · -",
+            OverviewText.TaskPopup(_subs.Tasks.Single(t => t.Id == "delta"), WithSession(session)).Single(s => s.Heading == "Sessions").Text);
+    }
+
+    [Fact]
+    public void Sub_agent_text_with_brackets_comes_out_escaped()
+    {
+        var beta = SubSession(SampleRun.BetaWorkerKey);
+        var session = beta with { Content = beta.Content with { SubAgents = [beta.Content.SubAgents[0] with { Name = "flags [x]" }] } };
+
+        Assert.Equal(
+            "[primary]    └▶ flags [[x]] · worker #1 · 1 tool call · 50s[/]",
+            OverviewText.ChildRow(Assert.Single(AgentTree.Rows([session])), _now, 100));
+        Assert.Equal(
+            "[primary]└▶ flags [[x]][/] · 1 tool call · context 3.6k · Read src/Beta/Program.cs",
+            OverviewText.RunningBlock(session, _subs, _now)[^1]);
+        Assert.Equal(
+            "12:00:00 [[a › [[x]]]] y",
+            OverviewText.LogLine(new ProgressEntry(SampleRun.At(12, 0, 0), "a", "y", ProgressKind.Info) { SubAgent = "[x]" }));
     }
 }
