@@ -16,7 +16,8 @@ namespace OrchDash.Pages.ContextWindow;
 /// <summary>
 /// The visuals and the selection state of one <see cref="ContextPage"/>. Everything shown is a function of
 /// <see cref="IAppContext.Snapshot"/>, <see cref="IAppContext.SelectedSessionKey"/> and the call and part the user
-/// selected last; the make-up and the rows are cached until one of those changes.
+/// selected last; the make-up and the rows are cached until one of those changes. The session list holds each session
+/// followed by its sub-agents (42.1); the right side shows the selected one (42.2, 42.3).
 /// </summary>
 internal sealed class ContextView
 {
@@ -36,10 +37,10 @@ internal sealed class ContextView
     private string? _shownKey;
     private int _showing;
 
-    private RunSnapshot? _sessionsFor;
-    private ImmutableArray<Session> _sessions = [];
-    private ImmutableArray<ImmutableArray<string>> _sessionRows = [];
-    private (RunSnapshot Snapshot, Session Session)? _makeupFor;
+    private RunSnapshot? _agentsFor;
+    private ImmutableArray<ListAgent> _agents = [];
+    private ImmutableArray<ImmutableArray<string>> _agentRows = [];
+    private (RunSnapshot Snapshot, Session Session, string? AgentId)? _makeupFor;
     private ContextMakeup? _makeup;
     private ImmutableArray<ImmutableArray<string>> _callRows = [];
     private (ContextMakeup Makeup, int Call)? _partsFor;
@@ -50,7 +51,7 @@ internal sealed class ContextView
     {
         _context = context;
         _sessionList = new SelectableList(
-            "context.sessions", SessionRows, SessionSelection, SelectSession, _ => FocusList(1),
+            "context.sessions", AgentRows, AgentSelection, SelectAgent, _ => FocusList(1),
             activateLabel: "Calls", emptyText: "No sessions yet");
         _callList = new SelectableList(
             "context.calls", CallRows, CallSelection, SelectCall, _ => FocusList(2),
@@ -134,91 +135,122 @@ internal sealed class ContextView
 
     private void FocusList(int index) => Root.App?.Focus(_focusOrder[index]);
 
-    private ImmutableArray<Session> Sessions()
+    /// <summary>The rows of the session list: each session, then its sub-agents as child rows (42.1).</summary>
+    private ImmutableArray<ListAgent> Agents()
     {
         var snapshot = _context.Snapshot.Value;
-        if (!ReferenceEquals(snapshot, _sessionsFor))
+        if (!ReferenceEquals(snapshot, _agentsFor))
         {
-            _sessions = ConversationText.OrderSessions(snapshot);
-            var nameWidth = _sessions.IsEmpty ? 0 : _sessions.Max(s => ContextText.SessionName(s).Length);
-            _sessionRows = [.. _sessions.Select(s => ImmutableArray.Create(ContextText.SessionRow(s, nameWidth)))];
-            _sessionsFor = snapshot;
+            var sessions = ConversationText.OrderSessions(snapshot);
+            var nameWidth = sessions.IsEmpty ? 0 : sessions.Max(s => ContextText.SessionName(s).Length);
+            var agents = ImmutableArray.CreateBuilder<ListAgent>();
+            var rows = ImmutableArray.CreateBuilder<ImmutableArray<string>>();
+            foreach (var session in sessions)
+            {
+                agents.Add(new ListAgent(session, null));
+                rows.Add(ImmutableArray.Create(ContextText.SessionRow(session, nameWidth)));
+                foreach (var child in AgentTree.Rows([session]))
+                {
+                    agents.Add(new ListAgent(session, child.SubAgent.Id));
+                    rows.Add(ImmutableArray.Create(ContextText.ChildRow(child, nameWidth)));
+                }
+            }
+            _agents = agents.ToImmutable();
+            _agentRows = rows.ToImmutable();
+            _agentsFor = snapshot;
         }
-        return _sessions;
+        return _agents;
     }
 
-    private ImmutableArray<ImmutableArray<string>> SessionRows()
+    private ImmutableArray<ImmutableArray<string>> AgentRows()
     {
-        Sessions();
-        return _sessionRows;
+        Agents();
+        return _agentRows;
     }
 
-    /// <summary>The session with the key <see cref="IAppContext.SelectedSessionKey"/>, else the first one; -1 without sessions.</summary>
-    private int SelectedSessionIndex()
+    /// <summary>
+    /// The row of <see cref="IAppContext.SelectedSessionKey"/> read with <see cref="AgentKey.Parse"/> (42.1): the child
+    /// row of its agent part, else its session's row, also for an agent id the session does not have; the first row
+    /// when no session has the key; -1 without sessions.
+    /// </summary>
+    private int SelectedIndex()
     {
-        var sessions = Sessions();
-        var key = _context.SelectedSessionKey.Value;
-        if (sessions.IsEmpty)
+        var agents = Agents();
+        if (agents.IsEmpty)
         {
             return -1;
         }
-        for (var i = 0; i < sessions.Length; i++)
+        var (sessionKey, agentId) = AgentKey.Parse(_context.SelectedSessionKey.Value);
+        var sessionRow = -1;
+        for (var i = 0; i < agents.Length; i++)
         {
-            if (sessions[i].Files.Key == key)
+            if (agents[i].Session.Files.Key != sessionKey)
+            {
+                continue;
+            }
+            if (agents[i].AgentId == agentId)
             {
                 return i;
             }
+            if (agents[i].AgentId is null && sessionRow < 0)
+            {
+                sessionRow = i;
+            }
         }
-        return 0;
+        return Math.Max(0, sessionRow);
     }
 
-    private Session? SelectedSession() => SelectedSessionIndex() is var index and >= 0 ? Sessions()[index] : null;
+    private ListAgent? Selected() => SelectedIndex() is var index and >= 0 ? Agents()[index] : null;
 
-    private ListSelection SessionSelection() => new(null, SelectedSessionIndex());
+    private ListSelection AgentSelection() => new(null, SelectedIndex());
 
-    private void SelectSession(int index) => _context.SelectedSessionKey.Value = Sessions()[index].Files.Key;
+    private void SelectAgent(int index) => _context.SelectedSessionKey.Value = Agents()[index].Key;
 
     /// <summary>
-    /// The number of the current showing of the selected session: it grows each time the page shows another session,
-    /// whether this page or another one changed the key. A cursor of an earlier showing is ignored, so a newly shown
-    /// session starts at its last call and its first part (15.7).
+    /// The number of the current showing of the selected session or sub-agent: it grows each time the page shows
+    /// another one, whether this page or another one changed the key. A cursor of an earlier showing is ignored, so a
+    /// newly shown session or sub-agent starts at its last call and its first part (15.7).
     /// </summary>
-    private int Showing(Session session)
+    private int Showing(ListAgent agent)
     {
-        if (session.Files.Key != _shownKey)
+        if (agent.Key != _shownKey)
         {
-            _shownKey = session.Files.Key;
+            _shownKey = agent.Key;
             _showing++;
         }
         return _showing;
     }
 
-    /// <summary>The make-up of the selected session, cached per snapshot and session; null without sessions.</summary>
-    private ContextMakeup? Makeup(Session? session)
+    /// <summary>
+    /// The make-up of the selected session (42.2) or sub-agent (42.3), cached per snapshot and row; null without
+    /// sessions.
+    /// </summary>
+    private ContextMakeup? Makeup(ListAgent? agent)
     {
-        if (session is null)
+        if (agent is not { } shown)
         {
             return null;
         }
         var snapshot = _context.Snapshot.Value;
-        if (_makeupFor is not { } key || !ReferenceEquals(key.Snapshot, snapshot) || !ReferenceEquals(key.Session, session))
+        if (_makeupFor is not { } key || !ReferenceEquals(key.Snapshot, snapshot) ||
+            !ReferenceEquals(key.Session, shown.Session) || key.AgentId != shown.AgentId)
         {
-            _makeup = ContextMakeup.Build(snapshot, session);
+            _makeup = ContextMakeup.Build(snapshot, shown.Session, shown.AgentId);
             _callRows = [.. Enumerable.Range(0, _makeup.Calls.Length).Select(i => ImmutableArray.Create(ContextText.CallRow(_makeup, i)))];
-            _makeupFor = (snapshot, session);
+            _makeupFor = (snapshot, shown.Session, shown.AgentId);
         }
         return _makeup;
     }
 
     private ImmutableArray<string> HeaderLines() =>
-        SelectedSession() is { } session && Makeup(session) is { } makeup
-            ? ContextText.Header(_context.Snapshot.Value, session, makeup, SelectedCall())
+        Selected() is { } agent && Makeup(agent) is { } makeup
+            ? ContextText.Header(_context.Snapshot.Value, agent.Session, makeup, SelectedCall(), agent.AgentId)
             : [];
 
     /// <summary>15.5: the contexts of the calls with usage from 0 to the largest one, or "no context sizes".</summary>
     private Visual Chart()
     {
-        var values = Makeup(SelectedSession()) is { } makeup ? ContextText.ChartValues(makeup) : [];
+        var values = Makeup(Selected()) is { } makeup ? ContextText.ChartValues(makeup) : [];
         if (values.IsEmpty)
         {
             return new Markup(Look.Tag("muted", "no context sizes"));
@@ -227,28 +259,30 @@ internal sealed class ContextView
         return new LineChart(values).Minimum(0).Maximum(Math.Max(1, values.Max())).Stretch();
     }
 
-    private ImmutableArray<ImmutableArray<string>> CallRows() => Makeup(SelectedSession()) is not null ? _callRows : [];
+    private ImmutableArray<ImmutableArray<string>> CallRows() => Makeup(Selected()) is not null ? _callRows : [];
 
     /// <summary>
-    /// The selected call: on a change of session that session's last call; the chain's last call while the user's
-    /// last pick was the last call and the session runs (15.7); else the user's pick by position (15.14).
+    /// The selected call: on a change of session or sub-agent its last call; the last call while the user's last pick
+    /// was the last call and the session or sub-agent runs (15.7); else the user's pick by position (15.14).
     /// </summary>
     private ListSelection CallSelection()
     {
-        var session = SelectedSession();
-        if (session is null || Makeup(session) is not { } makeup || makeup.Calls.IsEmpty)
+        if (Selected() is not { } agent || Makeup(agent) is not { } makeup || makeup.Calls.IsEmpty)
         {
             return new ListSelection(null, -1);
         }
         var count = makeup.Calls.Length;
         var cursor = _callCursor.Value;
-        var index = cursor.Showing != Showing(session) ? LastCallOf(session, makeup)
-            : cursor.AtEnd && session.State == SessionState.Running ? count - 1
+        var index = cursor.Showing != Showing(agent) ? LastCallOf(agent.Session, makeup)
+            : cursor.AtEnd && agent.IsRunning ? count - 1
             : Math.Min(cursor.Index, count - 1);
-        return new ListSelection(session.Files.Key, index);
+        return new ListSelection(agent.Key, index);
     }
 
-    /// <summary>The chain index of the session's own last call, or the chain's last call when it has none.</summary>
+    /// <summary>
+    /// The chain index of the session's own last call, or the chain's last call when it has none; a sub-agent's
+    /// make-up holds only calls of the session, so there it is the last call.
+    /// </summary>
     private static int LastCallOf(Session session, ContextMakeup makeup)
     {
         for (var i = makeup.Calls.Length - 1; i >= 0; i--)
@@ -265,9 +299,9 @@ internal sealed class ContextView
 
     private void SelectCall(int index)
     {
-        if (SelectedSession() is { } session)
+        if (Selected() is { } agent)
         {
-            _callCursor.Value = new ListCursor(Showing(session), index, index == CallRows().Length - 1);
+            _callCursor.Value = new ListCursor(Showing(agent), index, index == CallRows().Length - 1);
         }
     }
 
@@ -280,7 +314,7 @@ internal sealed class ContextView
     /// </summary>
     private Visual Breakdown()
     {
-        if (Makeup(SelectedSession()) is not { } makeup)
+        if (Makeup(Selected()) is not { } makeup)
         {
             return new Markup("");
         }
@@ -348,7 +382,7 @@ internal sealed class ContextView
     /// <summary>The parts in the context at the selected call and their rows, cached per make-up and call.</summary>
     private (ImmutableArray<ContextPart> Parts, ImmutableArray<ImmutableArray<string>> Rows) PartsAndRows()
     {
-        if (Makeup(SelectedSession()) is not { } makeup)
+        if (Makeup(Selected()) is not { } makeup)
         {
             return ([], []);
         }
@@ -363,25 +397,27 @@ internal sealed class ContextView
         return (_parts, _partRows);
     }
 
-    /// <summary>The selected part: the user's pick by position in this showing of the session (15.14), else the first.</summary>
+    /// <summary>
+    /// The selected part: the user's pick by position in this showing of the session or sub-agent (15.14), else the
+    /// first.
+    /// </summary>
     private ListSelection PartSelection()
     {
-        var session = SelectedSession();
         var count = Parts().Length;
-        if (session is null || count == 0)
+        if (Selected() is not { } agent || count == 0)
         {
             return new ListSelection(null, -1);
         }
         var cursor = _partCursor.Value;
-        var index = cursor.Showing != Showing(session) ? 0 : Math.Min(cursor.Index, count - 1);
-        return new ListSelection((session.Files.Key, SelectedCall()), index);
+        var index = cursor.Showing != Showing(agent) ? 0 : Math.Min(cursor.Index, count - 1);
+        return new ListSelection((agent.Key, SelectedCall()), index);
     }
 
     private void SelectPart(int index)
     {
-        if (SelectedSession() is { } session)
+        if (Selected() is { } agent)
         {
-            _partCursor.Value = new ListCursor(Showing(session), index, false);
+            _partCursor.Value = new ListCursor(Showing(agent), index, false);
         }
     }
 
@@ -396,17 +432,17 @@ internal sealed class ContextView
 
     private void OpenSystemPrompt()
     {
-        if (SelectedSession() is { } session)
+        if (Selected() is { } agent)
         {
-            Show(ContextText.SystemPromptPopup(session));
+            Show(ContextText.SystemPromptPopup(agent.Session, agent.AgentId));
         }
     }
 
     private void OpenTools()
     {
-        if (SelectedSession() is { } session && Makeup(session) is { } makeup)
+        if (Selected() is { } agent && Makeup(agent) is { } makeup)
         {
-            Show(ContextText.ToolsPopup(session, makeup));
+            Show(ContextText.ToolsPopup(agent.Session, makeup, agent.AgentId));
         }
     }
 

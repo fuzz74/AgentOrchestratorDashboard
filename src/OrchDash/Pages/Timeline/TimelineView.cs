@@ -23,13 +23,14 @@ internal sealed class TimelineView
 
     private readonly IAppContext _context;
     private readonly State<ImmutableHashSet<TimelineKind>> _shown = new(TimelineText.AllKinds);
+    private readonly State<bool> _subAgentsShown = new(true);
     private readonly State<string?> _taskGroup = new(null);
     private readonly State<TimelineCursor> _cursor = new(TimelineCursor.Start);
     private readonly SelectableList _list;
 
     private RunSnapshot? _eventsFor;
     private ImmutableArray<TimelineEvent> _events = [];
-    private (ImmutableArray<TimelineEvent> Events, ImmutableHashSet<TimelineKind> Shown, string? Group)? _visibleFor;
+    private (ImmutableArray<TimelineEvent> Events, ImmutableHashSet<TimelineKind> Shown, bool SubAgents, string? Group)? _visibleFor;
     private ImmutableArray<TimelineEvent> _visible = [];
     private ImmutableArray<ImmutableArray<string>> _rows = [];
 
@@ -56,7 +57,10 @@ internal sealed class TimelineView
 
     public Visual Root { get; }
 
-    /// <summary>33.1-33.3, 33.6: the five kind toggles, the task filter and <c>▶ replay here</c>, each clickable.</summary>
+    /// <summary>
+    /// 33.1-33.3, 33.6, 44.4: the five kind toggles, the sub-agents toggle while the snapshot has sub-agents, the task
+    /// filter and <c>▶ replay here</c>, each clickable.
+    /// </summary>
     private Visual FilterRow()
     {
         var kinds = TimelineText.Filters.Select(filter =>
@@ -64,6 +68,7 @@ internal sealed class TimelineView
         return new HStack(
             [
                 .. kinds,
+                Label(() => TimelineText.SubAgentLabel(_subAgentsShown.Value), ToggleSubAgents).IsVisible(HasSubAgents),
                 Label(() => TimelineText.TaskLabel(_taskGroup.Value), ToggleTask),
                 Label(TimelineText.ReplayLabel, ReplayHere),
             ])
@@ -99,17 +104,22 @@ internal sealed class TimelineView
         return _events;
     }
 
+    /// <summary>44.4: whether the snapshot has sub-agents, which shows the sub-agents toggle and its key.</summary>
+    private bool HasSubAgents() => TimelineText.HasSubAgents(_context.Snapshot.Value);
+
     /// <summary>The events that pass the filters, and their rows, cached per timeline and filters.</summary>
     private ImmutableArray<TimelineEvent> Visible()
     {
         var events = Events();
         var shown = _shown.Value;
+        var subAgents = _subAgentsShown.Value;
         var group = _taskGroup.Value;
-        if (_visibleFor is not { } key || key.Events != events || !ReferenceEquals(key.Shown, shown) || key.Group != group)
+        if (_visibleFor is not { } key || key.Events != events || !ReferenceEquals(key.Shown, shown) ||
+            key.SubAgents != subAgents || key.Group != group)
         {
-            _visible = TimelineText.Visible(events, shown, group);
+            _visible = TimelineText.Visible(events, shown, group, subAgents);
             _rows = [.. TimelineText.Rows(_visible).Select(row => ImmutableArray.Create(row))];
-            _visibleFor = (events, shown, group);
+            _visibleFor = (events, shown, subAgents, group);
         }
         return _visible;
     }
@@ -194,7 +204,13 @@ internal sealed class TimelineView
 
     private void ToggleKind(KindFilter filter) => _shown.Value = TimelineText.Toggle(filter, _shown.Value);
 
-    /// <summary>33.3: on, the selected event's group (and <c>run</c>); off, every group.</summary>
+    /// <summary>44.4: shows or hides every event with an AgentId; the kind filters still apply to the shown ones.</summary>
+    private void ToggleSubAgents() => _subAgentsShown.Value = !_subAgentsShown.Value;
+
+    /// <summary>
+    /// 33.3, 44.3: on, the selected event's group (and <c>run</c>), which for a sub-agent's event is its session's;
+    /// off, every group.
+    /// </summary>
     private void ToggleTask()
     {
         if (_taskGroup.Value is not null)
@@ -208,8 +224,8 @@ internal sealed class TimelineView
     }
 
     /// <summary>
-    /// 33.5: the selected event's session, or for an orchestrator event of a task that task's last session in snapshot
-    /// order, on the Conversation page; nothing without one.
+    /// 33.5, 44.3: the selected event's session, or its sub-agent for an event with an AgentId, or for an orchestrator
+    /// event of a task that task's last session in snapshot order, on the Conversation page; nothing without one.
     /// </summary>
     private void ShowConversation()
     {
@@ -217,7 +233,7 @@ internal sealed class TimelineView
         {
             return;
         }
-        var key = selected.Session?.Files.Key;
+        var key = selected.Session is { } session ? AgentKey.Of(session, selected.AgentId) : null;
         if (key is null && selected.Kind == TimelineKind.Orchestrator)
         {
             key = _context.Snapshot.Value.Sessions.LastOrDefault(s => s.Files.TaskId == selected.Group)?.Files.Key;
@@ -247,14 +263,17 @@ internal sealed class TimelineView
         {
             Add($"kind.{filter.Key}", filter.CommandLabel, new KeyGesture(filter.Key), () => ToggleKind(filter));
         }
+        // 44.4: only while the snapshot has sub-agents.
+        Add("subagents", TimelineText.SubAgentCommandLabel, new KeyGesture(TimelineText.SubAgentKey), ToggleSubAgents, HasSubAgents);
 
-        void Add(string name, string label, KeyGesture gesture, Action execute) =>
+        void Add(string name, string label, KeyGesture gesture, Action execute, Func<bool>? isVisible = null) =>
             list.AddCommand(new Command
             {
                 Id = $"timeline.{name}",
                 LabelMarkup = label,
                 Gesture = gesture,
                 Presentation = CommandPresentation.CommandBar,
+                IsVisible = isVisible is null ? null : _ => isVisible(),
                 Execute = _ => execute(),
             });
     }

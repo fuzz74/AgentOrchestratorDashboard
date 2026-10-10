@@ -15,4 +15,5 @@ public sealed record SessionContent(
     public string? SentPrompt { get; init; }             // Copilot: the prompt as sent
     public ContextCheckpoint? Checkpoint { get; init; }  // Copilot
     public RateLimit? RateLimit { get; init; }           // Claude
+    public ImmutableArray<SubAgent> SubAgents { get; init; } = [];   // in order of first appearance
 }

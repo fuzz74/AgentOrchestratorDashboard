@@ -9,6 +9,8 @@ namespace OrchDash.Tests.Pages.ContextWindow.Format;
 // The make-up rules on small constructed sessions. The sessions are not in the snapshot they are built with.
 public sealed class ContextMakeupCasesTests
 {
+    private const string SubId = "toolu_sub";
+
     private static readonly RunSnapshot Empty = RunSnapshot.Empty(SampleRun.RepoPath);
     private static readonly Session Beta = SampleRun.Create().Sessions.Single(s => s.Files.Key == SampleRun.BetaWorkerKey);
 
@@ -195,17 +197,155 @@ public sealed class ContextMakeupCasesTests
         ], makeup.Parts.Select(p => (p.Label, p.Tokens, p.IsEstimate)));
     }
 
-    private static ContextMakeup Build(Session session) => ContextMakeup.Build(Empty, session);
+    [Fact]
+    public void Sub_agent_calls_and_items_between_the_own_ones_stay_out_of_the_chain()
+    {
+        var run = SampleRun.CreateEnriched();
+        var first = run.Sessions.Single(s => s.Files.Key == SampleRun.GammaWorker1Key);
+        var second = run.Sessions.Single(s => s.Files.Key == SampleRun.GammaWorker2Key);
+        var withSub = first with
+        {
+            Content = first.Content with
+            {
+                Calls = [first.Content.Calls[0], OfSub(Call("s1", 50_000)), first.Content.Calls[1]],
+                Items = first.Content.Items.Insert(1, OfSub(new AssistantText("s1", null, "sub-agent text"))),
+                SubAgents = [NewSubAgent("prompt of the sub-agent")],
+            },
+        };
+        var expected = ContextMakeup.Build(run, second);
+
+        var makeup = ContextMakeup.Build(run with { Sessions = run.Sessions.Replace(first, withSub) }, second);
+
+        Assert.Equal(["msg_01E1gamma", "msg_02F2gamma", "msg_03G3gamma", "msg_04H4gamma"],
+            makeup.Calls.Select(c => c.Call.Id));
+        Assert.Equal(expected.Parts.Select(p => (p.Label, p.Birth, p.Tokens)),
+            makeup.Parts.Select(p => (p.Label, p.Birth, p.Tokens)));
+        Assert.Equal(33_501, makeup.Peak);
+    }
+
+    [Fact]
+    public void A_call_id_is_looked_up_among_the_calls_of_the_item_s_agent()
+    {
+        // Copilot numbers the turns of each agent from "0" (35.4).
+        var session = Session([Call("0", 100), OfSub(Call("0", 40)), OfSub(Call("1", 60)), Call("1", 180)],
+            items:
+            [
+                new AssistantText("0", null, "own one"),
+                OfSub(new AssistantText("0", null, "sub one")),
+                OfSub(new AssistantText("1", null, "sub two")),
+                new AssistantText("1", null, "own two"),
+            ],
+            subAgents: [NewSubAgent("go")]);
+
+        var own = Build(session);
+        var sub = Build(session, SubId);
+
+        Assert.Equal([("prompt #1", 0, ""), ("text", 1, "own one")],
+            own.Parts.Select(p => (p.Label, p.Birth, (p.Source as AssistantText)?.Text ?? "")));
+        Assert.Equal([("prompt", 0, ""), ("text", 1, "sub one")],
+            sub.Parts.Select(p => (p.Label, p.Birth, (p.Source as AssistantText)?.Text ?? "")));
+        Assert.Equal(80, own.StepAt(1));
+        Assert.Equal(20, sub.StepAt(1));
+    }
+
+    [Fact]
+    public void A_sub_agent_takes_its_system_prompt_tools_and_injected_items_from_its_store_data()
+    {
+        var session = Session([OfSub(Call("s1", 10, SampleRun.At(12, 0, 0))), OfSub(Call("s2", 30, SampleRun.At(12, 30, 0)))],
+            blocks: ["session block"], subAgents: [NewSubAgent("go")]);
+        var stores = StoreData.Empty with
+        {
+            SystemPrompt = ["sub-agent block"],
+            Tools = [new ToolDefinition("Glob", "Finds files.", "{}")],
+            Injected = [new InjectedItem("reminder", "system", SampleRun.At(12, 10, 0), "note")],
+        };
+        session = session with { Stores = session.Stores with { SubAgents = StoreData.NoSubAgents.Add(SubId, stores) } };
+
+        var makeup = Build(session, SubId);
+
+        Assert.Equal([("block 1", 0), ("Glob", 0), ("prompt", 0), ("reminder", 1)],
+            makeup.Parts.Select(p => (p.Label, p.Birth)));
+        Assert.Same(stores.SystemPrompt[0], makeup.Parts[0].Source);
+        Assert.Same(stores.Injected[0], makeup.Parts[3].Source);
+    }
+
+    [Fact]
+    public void A_sub_agent_without_store_data_shows_none_of_the_session_s()
+    {
+        var session = Session([Call("c1", 100), OfSub(Call("s1", 10))], blocks: ["session block"],
+            prompt: "session prompt", subAgents: [NewSubAgent("abc")]);
+        session = session with
+        {
+            Stores = session.Stores with { Injected = [new InjectedItem("memory", "system", null, "remember")] },
+        };
+
+        var makeup = Build(session, SubId);
+
+        Assert.Equal([("prompt", 0, 3L, (long?)10)], makeup.Parts.Select(p => (p.Label, p.Birth, p.Characters, p.Tokens)));
+    }
+
+    [Fact]
+    public void A_sub_agent_without_calls_has_no_parts()
+    {
+        var session = Session([Call("c1", 10)], items: [OfSub(new UserText(null, null, "early", false))],
+            subAgents: [NewSubAgent("abc")]);
+
+        var makeup = Build(session, SubId);
+
+        Assert.Equal([session], makeup.Chain);
+        Assert.Empty(makeup.Calls);
+        Assert.Empty(makeup.Parts);
+        Assert.Null(makeup.Peak);
+    }
+
+    [Fact]
+    public void A_sub_agent_of_a_chain_session_has_no_chain_and_its_prompt_is_born_at_its_first_call()
+    {
+        var run = SampleRun.CreateEnriched();
+        var second = run.Sessions.Single(s => s.Files.Key == SampleRun.GammaWorker2Key);
+        var withSub = second with
+        {
+            Content = second.Content with
+            {
+                Calls = second.Content.Calls.Add(OfSub(Call("s1", 7_000))),
+                SubAgents = [NewSubAgent("check the tests")],
+            },
+        };
+
+        var makeup = ContextMakeup.Build(run with { Sessions = run.Sessions.Replace(second, withSub) }, withSub, SubId);
+
+        Assert.Equal([withSub], makeup.Chain);
+        Assert.Equal([(0, "s1")], makeup.Calls.Select(c => (c.Index, c.Call.Id)));
+        Assert.Equal([("prompt", 0, (long?)7_000)], makeup.Parts.Select(p => (p.Label, p.Birth, p.Tokens)));
+        Assert.Equal("call 1  -           7.0k    +7.0k  out -       think -       -", ContextText.CallRow(makeup, 0));
+    }
+
+    private static ContextMakeup Build(Session session, string? agentId = null) =>
+        ContextMakeup.Build(Empty, session, agentId);
 
     private static ModelCall Call(string id, long context, DateTimeOffset? startedAt = null) =>
         new(id, "m", startedAt, new TokenUsage(context, 0, 0, null));
 
-    // The beta worker with only the given calls, items, system prompt blocks and prompt.
+    private static ModelCall OfSub(ModelCall call) => call with { AgentId = SubId };
+
+    private static ConversationItem OfSub(ConversationItem item) => item with { AgentId = SubId };
+
+    // A finished foreground sub-agent with the id SubId and the prompt.
+    private static SubAgent NewSubAgent(string prompt) =>
+        new(SubId, null, SubId, "Survey", "Survey", "Explore", "m", false, prompt, null, null, SessionState.Succeeded, null);
+
+    // The beta worker with only the given calls, items, system prompt blocks, prompt and sub-agents.
     private static Session Session(ImmutableArray<ModelCall> calls, ImmutableArray<string> blocks = default,
-        string prompt = "", ImmutableArray<ConversationItem> items = default) => Beta with
+        string prompt = "", ImmutableArray<ConversationItem> items = default,
+        ImmutableArray<SubAgent> subAgents = default) => Beta with
     {
         Prompt = prompt,
-        Content = Beta.Content with { Calls = calls, Items = items.IsDefault ? [] : items },
+        Content = Beta.Content with
+        {
+            Calls = calls,
+            Items = items.IsDefault ? [] : items,
+            SubAgents = subAgents.IsDefault ? [] : subAgents,
+        },
         Stores = StoreData.Empty with { SystemPrompt = blocks.IsDefault ? [] : blocks },
     };
 }

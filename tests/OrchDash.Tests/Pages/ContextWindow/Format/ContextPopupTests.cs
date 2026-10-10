@@ -6,12 +6,16 @@ using Xunit;
 
 namespace OrchDash.Tests.Pages.ContextWindow.Format;
 
-// The part, system prompt and tool definition pop-ups of the Context page on SampleRun.CreateEnriched().
+// The part, system prompt and tool definition pop-ups of the Context page on SampleRun.CreateEnriched(), and of
+// sub-agents on SampleRun.CreateSubAgents() (42.3).
 public sealed class ContextPopupTests
 {
     private readonly RunSnapshot _run = SampleRun.CreateEnriched();
+    private readonly RunSnapshot _subRun = SampleRun.CreateSubAgents();
 
     private Session Get(string key) => _run.Sessions.Single(s => s.Files.Key == key);
+
+    private Session GetSub(string key) => _subRun.Sessions.Single(s => s.Files.Key == key);
 
     private ContextMakeup Makeup(string key) => ContextMakeup.Build(_run, Get(key));
 
@@ -195,6 +199,73 @@ public sealed class ContextPopupTests
         AssertPopup(
             new ContextPopup("Tool definitions", [new PopupSection("Unavailable", "unavailable: no transcript")]),
             ContextText.ToolsPopup(Get(SampleRun.BetaWorkerKey), Makeup(SampleRun.BetaWorkerKey)));
+    }
+
+    [Fact]
+    public void Prompt_of_a_sub_agent_shows_its_prompt()
+    {
+        var part = ContextMakeup.Build(_subRun, GetSub(SampleRun.AlphaWorkerKey), SampleRun.AlphaSub1Id).Parts
+            .Single(p => p.Kind == PartKind.Prompt);
+
+        AssertPopup(
+            new ContextPopup("Prompt: prompt",
+                [new PopupSection("Prompt", "List the files in src/Alpha and say what each one holds.")]),
+            ContextText.PartPopup(part));
+    }
+
+    [Fact]
+    public void System_prompt_popup_of_a_sub_agent_shows_the_blocks_of_its_store_data()
+    {
+        AssertPopup(
+            new ContextPopup("System prompt",
+            [
+                new PopupSection("Block 1, 57 characters", "You are Claude Code, Anthropic's official CLI for Claude."),
+                new PopupSection("Block 2, 109 characters",
+                    "You are a file search specialist. Use Glob, Grep and Read to answer the question, then report what you found."),
+            ]),
+            ContextText.SystemPromptPopup(GetSub(SampleRun.AlphaWorkerKey), SampleRun.AlphaSub1Id));
+    }
+
+    [Fact]
+    public void Tools_popup_of_a_sub_agent_shows_the_definitions_of_its_store_data()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+        var tools = worker.Stores.SubAgents[SampleRun.AlphaSub1Id].Tools;
+
+        AssertPopup(
+            new ContextPopup("Tool definitions",
+            [
+                new PopupSection("Glob", "Fast file pattern matching that works with any codebase size.\n\n" + tools[0].SchemaJson),
+                new PopupSection("Read", "Reads a file from the local filesystem.\n\n" + tools[1].SchemaJson),
+            ]),
+            ContextText.ToolsPopup(worker, ContextMakeup.Build(_subRun, worker, SampleRun.AlphaSub1Id), SampleRun.AlphaSub1Id));
+    }
+
+    [Fact]
+    public void Popups_of_a_sub_agent_without_store_data_are_unavailable_rather_than_the_session_s()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+        var beta = GetSub(SampleRun.BetaWorkerKey);
+
+        AssertPopup(
+            new ContextPopup("System prompt", [new PopupSection("Unavailable", "unavailable")]),
+            ContextText.SystemPromptPopup(worker, SampleRun.AlphaSub2Id));
+        AssertPopup(
+            new ContextPopup("Tool definitions", [new PopupSection("Unavailable", "unavailable")]),
+            ContextText.ToolsPopup(worker, ContextMakeup.Build(_subRun, worker, SampleRun.AlphaSub2Id), SampleRun.AlphaSub2Id));
+        AssertPopup(
+            new ContextPopup("System prompt", [new PopupSection("Unavailable", "unavailable: no transcript")]),
+            ContextText.SystemPromptPopup(beta, SampleRun.BetaSub1Id));
+    }
+
+    [Fact]
+    public void Popups_with_an_agent_id_the_session_does_not_have_are_the_session_s()
+    {
+        var worker = GetSub(SampleRun.AlphaWorkerKey);
+
+        AssertPopup(ContextText.SystemPromptPopup(worker), ContextText.SystemPromptPopup(worker, "toolu_unknown"));
+        AssertPopup(ContextText.ToolsPopup(worker, ContextMakeup.Build(_subRun, worker)),
+            ContextText.ToolsPopup(worker, ContextMakeup.Build(_subRun, worker, "toolu_unknown"), "toolu_unknown"));
     }
 
     // ContextPopup compares Sections by reference, so the title and the sections are compared one by one.

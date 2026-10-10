@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OrchDash.Core.Model;
+using OrchDash.Pages.Conversation.Format;
 
 namespace OrchDash.Pages.ContextWindow.Format;
 
@@ -8,18 +9,44 @@ namespace OrchDash.Pages.ContextWindow.Format;
 public sealed record ContextMakeup(ImmutableArray<Session> Chain, ImmutableArray<ChainCall> Calls,
     ContextCheckpoint? LastCheckpoint, ImmutableArray<ContextPart> Parts)
 {
+    private const string SubAgentPrompt = "prompt";
+
     private static readonly PartCategory[] AlwaysShown = [PartCategory.SystemPrompt, PartCategory.ToolDefinitions];
     private static readonly PartCategory[] ShownWithParts =
         [PartCategory.Injected, PartCategory.Prompt, PartCategory.Conversation];
 
     // Never throws: no calls, no stores, default arrays and a session that is not in the snapshot give a make-up.
-    public static ContextMakeup Build(RunSnapshot snapshot, Session session)
+    // 42.2: the session's chain, with only the agent's own calls and items of each chain session. 42.3: with agentId
+    // naming one of the session's sub-agents, that sub-agent alone; an unknown agentId gives the session's make-up.
+    public static ContextMakeup Build(RunSnapshot snapshot, Session session, string? agentId = null)
     {
+        if (SubAgents.Find(session.Content, agentId) is { } sub)
+            return BuildSubAgent(session, sub);
+
         var chain = ChainOf(snapshot, session);
-        var calls = CallsOf(chain);
+        ImmutableArray<MakeupSegment> segments =
+        [
+            .. chain.Select(s => new MakeupSegment(s, "prompt " + Words.Attempt(s.Files),
+                s.Content.SentPrompt ?? s.Prompt, s, SubAgents.Calls(s.Content, null), SubAgents.Items(s.Content, null))),
+        ];
+        var calls = CallsOf(segments);
         var checkpoint = chain.LastOrDefault(s => s.Content.Checkpoint is not null)?.Content.Checkpoint;
-        var parts = MakeupParts.Collect(session, chain, calls, checkpoint);
+        var parts = MakeupParts.Collect(session, session.Stores, segments, calls, checkpoint);
         return new ContextMakeup(chain, calls, checkpoint, MakeupTokens.Assign(parts, calls));
+    }
+
+    // 42.3: the sub-agent's own calls without a chain; system prompt, tools and injected items from its store data,
+    // if any; its prompt and its items. The session is the chain's only member, so the calls show no attempt.
+    private static ContextMakeup BuildSubAgent(Session session, SubAgent sub)
+    {
+        ImmutableArray<MakeupSegment> segments =
+        [
+            new(session, SubAgentPrompt, sub.Prompt, sub,
+                SubAgents.Calls(session.Content, sub.Id), SubAgents.Items(session.Content, sub.Id)),
+        ];
+        var calls = CallsOf(segments);
+        var parts = MakeupParts.Collect(session, MakeupParts.StoresOf(session, sub.Id), segments, calls, null);
+        return new ContextMakeup([session], calls, null, MakeupTokens.Assign(parts, calls));
     }
 
     // The largest context of the chain's calls; null while no call has usage.
@@ -89,10 +116,10 @@ public sealed record ContextMakeup(ImmutableArray<Session> Chain, ImmutableArray
         ];
     }
 
-    private static ImmutableArray<ChainCall> CallsOf(ImmutableArray<Session> chain) =>
+    private static ImmutableArray<ChainCall> CallsOf(ImmutableArray<MakeupSegment> segments) =>
     [
-        .. chain
-            .SelectMany(s => MakeupParts.OrEmpty(s.Content.Calls).Select(call => (Session: s, Call: call)))
+        .. segments
+            .SelectMany(s => s.Calls.Select(call => (s.Session, Call: call)))
             .Select((c, i) => new ChainCall(i, c.Session, c.Call)),
     ];
 

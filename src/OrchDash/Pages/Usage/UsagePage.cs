@@ -5,7 +5,8 @@ namespace OrchDash.Pages.Usage;
 
 /// <summary>
 /// The Usage page (16.1-16.10): the run panel with the rate limit and versions lines on top, the group table with the
-/// tokens per group beside it, and the session table of the selected group at the bottom.
+/// tokens per group beside it, and the session table of the selected group at the bottom, with the sessions' sub-agents
+/// as child rows (43.1-43.5).
 /// </summary>
 public sealed class UsagePage : IPage
 {

@@ -21,8 +21,18 @@ public sealed partial class UsagePageTests
     private const string GammaWorker2Row = "✖ worker #2 claude-opus-4-5 2 33.5k 4 57.2k 7.0k 2.9k 0.33 USD - -";
     private const string BetaWorkerRow = "▶ worker #1 claude-sonnet-4-5 2 34.5k 1.7k 47.8k 3.8k - - - -";
 
+    // CreateSubAgents()
+    private const string SubAlphaRow = "alpha 2 7 2.0k 74.2k 36.6k 4.3k 0.25 USD 1 3.99 AIU +12 -3 2 · 17 %";
+    private const string SubAlphaWorkerRow = "✔ worker #1 claude-sonnet-4-5 5 43.3k 2.0k 60.0k 19.7k 3.1k 0.25 USD - +12 -3";
+    private const string AlphaSub1Row = "├✔ Survey the parser module claude-haiku-4-5 2 5.4k 5 4.0k 5.4k 380 - - -";
+    private const string AlphaSub2Row = "└✖ Check the public API surface of… claude-sonnet-4-5 1 9.8k 3 0 9.8k - - - -";
+
     private static UiTestHost Start(RunSnapshot? snapshot = null) =>
         UiTestHost.Start([new UsagePage(), new SessionKeyPage()], snapshot ?? SampleRun.CreateEnriched());
+
+    // Wide enough for the group table with its Sub column (43.4).
+    private static UiTestHost StartWithSubAgents() =>
+        UiTestHost.Start([new UsagePage(), new SessionKeyPage()], SampleRun.CreateSubAgents(), width: 180);
 
     [Fact]
     public void The_page_shows_the_run_the_rate_limits_the_versions_the_groups_the_chart_and_the_first_groups_sessions()
@@ -300,6 +310,174 @@ public sealed partial class UsagePageTests
         host.Press(TerminalKey.Tab);
         host.Press(TerminalKey.Enter);
         Assert.DoesNotContain("[X]", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void With_sub_agents_the_page_shows_their_number_the_sub_column_the_sub_agent_bars_and_child_rows()
+    {
+        using var host = StartWithSubAgents();
+
+        Assert.Contains("sub-agents 6", PaneText(host.Frame(), "Run"), StringComparison.Ordinal);
+        Assert.Equal(
+        [
+            "Group Sess Calls Input C.read C.write Output Cost Prem AIU Lines Sub",
+            "planner 1 5 88 12.4k 34.6k 1.4k - 1 4.20 AIU +0 -0 3 · 40 %",
+            SubAlphaRow,
+            "gamma 2 4 10 89.2k 24.5k 5.1k 0.62 USD - - - -",
+            "beta 1 3 1.7k 47.8k 7.4k - - - - - 1 · 6 %",
+        ], Rows(host.Frame(), "Groups"));
+        AssertSubAgentBar(host.Frame(), "planner", "19.4k");
+        AssertSubAgentBar(host.Frame(), "alpha", "19.5k");
+        AssertSubAgentBar(host.Frame(), "beta", "3.6k");
+        Assert.Null(SubAgentBarUnder(host.Frame(), "gamma"));
+        Assert.Equal(
+        [
+            "✔ planner #1 gpt-5.6-luna 5 15.8k 88 12.4k 34.6k 1.4k - 4.20 AIU +0 -0",
+            "├✔ Map the repo gpt-5.6-luna 1 6.8k 12 0 6.8k 210 - 0.31 AIU -",
+            "│ └✔ Read the spec gpt-5.6-luna 1 5.9k 10 0 5.9k 180 - 0.27 AIU -",
+            "└✔ Survey the tests gpt-5.6-luna 1 6.1k 11 0 6.1k 190 - 0.29 AIU -",
+        ], SessionRows(host.Frame()));
+
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Tab);
+        host.Press(TerminalKey.Down);
+
+        Assert.Equal(SubAlphaRow, SelectedRow(host.Frame(), "Groups"));
+        Assert.Equal([SubAlphaWorkerRow, AlphaSub1Row, AlphaSub2Row, AlphaReviewRow], SessionRows(host.Frame()));
+        Assert.Equal(AlphaSub1Row, SelectedRow(host.Frame(), "Sessions"));
+        host.SaveSvg("usage-subagents");
+    }
+
+    [Fact]
+    public void Moving_to_a_child_row_sets_the_key_of_its_sub_agent()
+    {
+        using var host = StartWithSubAgents();
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Tab);
+
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Down);
+
+        Assert.Equal(AlphaSub2Row, SelectedRow(host.Frame(), "Sessions"));
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.AlphaWorkerKey}|{SampleRun.AlphaSub2Id}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enter_on_a_child_row_opens_the_usage_popup_of_its_sub_agent()
+    {
+        using var host = StartWithSubAgents();
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Tab);
+        host.Press(TerminalKey.Down);
+
+        host.Press(TerminalKey.Enter);
+
+        AssertPopup(host.Frame(), "Usage: alpha worker #1 › Survey the parser module", "Totals", "Calls");
+        var popup = PopupLines(host.Frame());
+        Assert.Contains("calls: 2", popup);
+        Assert.Contains("peak context: 5.4k", popup);
+        Assert.Contains(popup, line => line.StartsWith("call 2 · 12:00:50 · claude-haiku-4-5 · input 2 ·", StringComparison.Ordinal));
+        Assert.DoesNotContain(popup, line => line.StartsWith("Sub-agent ", StringComparison.Ordinal));
+
+        host.Press(TerminalKey.Escape);
+
+        Assert.DoesNotContain("[X]", host.Frame(), StringComparison.Ordinal);
+        Assert.Equal(AlphaSub1Row, SelectedRow(host.Frame(), "Sessions"));
+    }
+
+    [Fact]
+    public void A_click_on_a_child_row_selects_it_and_opens_its_popup()
+    {
+        using var host = StartWithSubAgents();
+
+        host.ClickText("Read the spec");
+
+        AssertPopup(host.Frame(), "Usage: planner #1 › Map the repo › Read the spec", "Totals", "Calls");
+        Assert.Contains("AIU: 0.27 AIU", PopupLines(host.Frame()));
+        host.Press(TerminalKey.Escape);
+        host.Type('2');
+        Assert.Contains($"selected key: {SampleRun.PlannerKey}|{SampleRun.PlannerSub2Id}", host.Frame(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_popup_of_a_session_with_sub_agents_has_a_section_per_sub_agent()
+    {
+        using var host = StartWithSubAgents();
+        host.Press(TerminalKey.Down);
+        host.Press(TerminalKey.Tab);
+
+        host.Press(TerminalKey.Enter);
+
+        AssertPopup(host.Frame(), "Usage: alpha worker #1", "Totals", "Calls",
+            "Sub-agent Survey the parser module", "Sub-agent Check the public API surface of…");
+        Assert.Contains("calls: 5", PopupLines(host.Frame()));
+    }
+
+    [Fact]
+    public void A_sub_agent_key_set_by_another_page_selects_its_sessions_group_and_its_child_row()
+    {
+        using var host = StartWithSubAgents();
+        host.Type('2');
+
+        host.Type('s');
+
+        Assert.Equal(SubAlphaRow, SelectedRow(host.Frame(), "Groups"));
+        Assert.Equal(AlphaSub1Row, SelectedRow(host.Frame(), "Sessions"));
+    }
+
+    [Fact]
+    public void A_key_with_a_sub_agent_that_its_session_does_not_have_selects_the_session_row()
+    {
+        using var host = StartWithSubAgents();
+        host.Type('2');
+
+        host.Type('u');
+
+        Assert.Equal(SubAlphaRow, SelectedRow(host.Frame(), "Groups"));
+        Assert.Equal(AlphaReviewRow, SelectedRow(host.Frame(), "Sessions"));
+    }
+
+    [Fact]
+    public void A_new_snapshot_keeps_the_selected_child_row()
+    {
+        using var host = StartWithSubAgents();
+        host.Type('2');
+        host.Type('s');
+
+        host.SetSnapshot(SampleRun.CreateSubAgents() with { Version = 2 });
+
+        Assert.Equal(SubAlphaRow, SelectedRow(host.Frame(), "Groups"));
+        Assert.Equal(AlphaSub1Row, SelectedRow(host.Frame(), "Sessions"));
+    }
+
+    [Fact]
+    public void Without_sub_agents_the_page_shows_no_sub_column_bars_or_line()
+    {
+        foreach (var snapshot in new[] { SampleRun.Create(), SampleRun.CreateEnriched() })
+        {
+            using var host = Start(snapshot);
+
+            Assert.DoesNotContain("sub-agents", host.Frame(), StringComparison.Ordinal);
+            Assert.Equal("Group Sess Calls Input C.read C.write Output Cost Prem AIU Lines", Rows(host.Frame(), "Groups")[0]);
+        }
+    }
+
+    /// <summary>Asserts that the chart's bar right under the group's is "└ sub-agents" with these tokens.</summary>
+    private static void AssertSubAgentBar(string frame, string group, string tokens)
+    {
+        var bar = SubAgentBarUnder(frame, group);
+        Assert.True(bar is not null, frame);
+        Assert.Contains(tokens, bar, StringComparison.Ordinal);
+    }
+
+    /// <summary>The line under the group's bar when it holds a "└ sub-agents" bar, with single spaces; else null.</summary>
+    private static string? SubAgentBarUnder(string frame, string group)
+    {
+        var lines = frame.Split('\n').Select(Spaced).ToArray();
+        var bar = Array.FindIndex(lines, line => line.Contains($"{group} █", StringComparison.Ordinal));
+        Assert.True(bar >= 0, frame);
+        return bar + 1 < lines.Length && lines[bar + 1].Contains("└ sub-agents █", StringComparison.Ordinal) ? lines[bar + 1] : null;
     }
 
     /// <summary>The enriched run with the alpha worker repeated as attempts 2 to <paramref name="attempts"/>.</summary>

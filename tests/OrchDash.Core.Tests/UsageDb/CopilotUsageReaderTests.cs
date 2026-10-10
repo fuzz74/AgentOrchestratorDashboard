@@ -4,7 +4,7 @@ using Xunit;
 
 namespace OrchDash.Core.Tests.UsageDb;
 
-/// <summary>The usage reader on databases the test builds (spec 13.1-13.6).</summary>
+/// <summary>The usage reader on databases the test builds (spec 13.1-13.6, 36.2).</summary>
 public sealed class CopilotUsageReaderTests
 {
     private const string SessionA = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -53,6 +53,33 @@ public sealed class CopilotUsageReaderTests
         Assert.Same(StringComparer.Ordinal, rows.BySession.KeyComparer);
         Assert.Equal([SessionA], rows.BySession.Keys);
         Assert.Equal([100L, 300L], rows.BySession[SessionA].Select(call => call.Usage.Context));
+    }
+
+    [Fact]
+    public void Agent_id_and_parent_tool_call_id_are_mapped_in_query_order_and_null_gives_null()
+    {
+        using var database = new TempDatabase();
+        database.Insert(SessionA, "2026-10-03T10:00:00.000Z", 100, 0, 0, 1);
+        database.Insert(SessionA, "2026-10-03T10:00:01.000Z", 200, 0, 0, 2, agentId: "agent-p1", parentToolCallId: "call-sub");
+        database.Insert(SessionB, "2026-10-03T10:00:02.000Z", 300, 0, 0, 3, agentId: "agent-b1");
+        database.Insert(SessionA, "2026-10-03T10:00:03.000Z", 400, 0, 0, 4, parentToolCallId: "call-other");
+        database.Insert(SessionA, "2026-10-03T10:00:04.000Z", 500, 0, 0, 5, agentId: "agent-p2");
+        database.Insert(SessionA, "2026-10-03T09:59:00.000Z", 600, 0, 0, 6);
+
+        var rows = new CopilotUsageReader(database.DatabasePath).Read([SessionA, SessionB]);
+
+        Assert.Null(rows.Problem);
+        var calls = rows.BySession[SessionA];
+        Assert.Equal([100L, 200L, 400L, 500L, 600L], calls.Select(call => call.Usage.Context));
+        Assert.Equal([null, "agent-p1", null, "agent-p2", null], calls.Select(call => call.AgentId));
+        Assert.Equal([null, "call-sub", "call-other", null, null], calls.Select(call => call.ParentToolCallId));
+        Assert.Equal(
+            new CallFigures(null, new DateTimeOffset(2026, 10, 3, 10, 0, 1, TimeSpan.Zero), new TokenUsage(200, 0, 0, 2),
+                null, null, null, null) { AgentId = "agent-p1", ParentToolCallId = "call-sub" },
+            calls[1]);
+        var other = Assert.Single(rows.BySession[SessionB]);
+        Assert.Equal("agent-b1", other.AgentId);
+        Assert.Null(other.ParentToolCallId);
     }
 
     [Fact]

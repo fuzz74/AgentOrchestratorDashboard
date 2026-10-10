@@ -12,4 +12,5 @@ public enum EntryKind
     Notice,
     Result,
     NoEventLog,
+    SubAgent,   // the ToolCall that started a sub-agent (41.3)
 }

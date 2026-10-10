@@ -8,7 +8,7 @@ public enum PartKind
     ToolDefinition,   // Source: ToolDefinition
     ToolSummary,      // Source: ContextCheckpoint
     Injected,         // Source: InjectedItem
-    Prompt,           // Source: Session
+    Prompt,           // Source: Session; SubAgent in a sub-agent's make-up (42.3)
     ToolCall,         // Source: ToolCall
     Item,             // Source: ConversationItem
 }

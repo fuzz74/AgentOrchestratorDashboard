@@ -41,7 +41,7 @@ internal static class SnapshotComparer
             && SameItems(a.Unavailable, b.Unavailable)
             && a == (b with { Content = a.Content, Stores = a.Stores, Unavailable = a.Unavailable });
 
-    // ModelCall and RateLimit hold no arrays, so record equality compares them by content.
+    // ModelCall, RateLimit and SubAgent hold no arrays, so record equality compares them by content.
     private static bool SameSessionContent(SessionContent a, SessionContent b) =>
         ReferenceEquals(a, b)
         || SameInit(a.Init, b.Init)
@@ -49,7 +49,12 @@ internal static class SnapshotComparer
             && SameItems(a.Items, b.Items)
             && SameResult(a.Result, b.Result)
             && SameCheckpoint(a.Checkpoint, b.Checkpoint)
-            && a == (b with { Init = a.Init, Calls = a.Calls, Items = a.Items, Result = a.Result, Checkpoint = a.Checkpoint });
+            && SameItems(a.SubAgents, b.SubAgents)
+            && a == (b with
+            {
+                Init = a.Init, Calls = a.Calls, Items = a.Items, Result = a.Result, Checkpoint = a.Checkpoint,
+                SubAgents = a.SubAgents,
+            });
 
     private static bool SameStores(StoreData a, StoreData b) =>
         ReferenceEquals(a, b)
@@ -57,7 +62,28 @@ internal static class SnapshotComparer
             && SameItems(a.Tools, b.Tools)
             && SameItems(a.Injected, b.Injected)
             && SameItems(a.Calls, b.Calls)
-            && a == (b with { SystemPrompt = a.SystemPrompt, Tools = a.Tools, Injected = a.Injected, Calls = a.Calls });
+            && SameSubAgentStores(a.SubAgents, b.SubAgents)
+            && a == (b with
+            {
+                SystemPrompt = a.SystemPrompt, Tools = a.Tools, Injected = a.Injected, Calls = a.Calls,
+                SubAgents = a.SubAgents,
+            });
+
+    // The same keys, each with the same store data.
+    private static bool SameSubAgentStores(ImmutableDictionary<string, StoreData> a, ImmutableDictionary<string, StoreData> b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a.Count != b.Count)
+            return false;
+
+        foreach (var (key, value) in a)
+        {
+            if (!b.TryGetValue(key, out var other) || !SameStores(value, other))
+                return false;
+        }
+        return true;
+    }
 
     private static bool SameCheckpoint(ContextCheckpoint? a, ContextCheckpoint? b) =>
         ReferenceEquals(a, b)

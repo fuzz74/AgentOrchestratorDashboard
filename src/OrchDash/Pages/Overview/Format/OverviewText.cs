@@ -6,7 +6,7 @@ using OrchDash.Pages.Conversation.Format;
 
 namespace OrchDash.Pages.Overview.Format;
 
-// The text of the Overview page (spec 7.1-7.9): markup lines and pop-up sections built from the model.
+// The text of the Overview page (spec 7.1-7.9, 39): markup lines and pop-up sections built from the model.
 // Every piece of model text in a markup line goes through Look.Tag; PopupSection.Text is plain text.
 public static class OverviewText
 {
@@ -24,6 +24,9 @@ public static class OverviewText
     private const string ColumnGap = "  ";
     private const string Separator = " · ";
     private const string ItemIndent = "  ";
+    // The icon and the gap after it, so that a child row starts at the id column of its task row (39.1).
+    private const string ChildIndent = "   ";
+    private const string PopupChildIndent = "  ";
 
     private static readonly TaskState[] TaskStates = Enum.GetValues<TaskState>();
 
@@ -95,6 +98,33 @@ public static class OverviewText
     public static string TaskRow(TaskView t, DateTimeOffset now, int idWidth, int titleWidth, int detailWidth) =>
         Look.Tag(Look.Color(t.Status), Columns(TaskCells(t, now), idWidth, titleWidth, detailWidth));
 
+    // 39.1: the rows of the task table: each task, followed by the child rows of its sessions in snapshot order.
+    public static IReadOnlyList<OverviewRow> TaskRows(RunSnapshot s)
+    {
+        var rows = new List<OverviewRow>();
+        foreach (var task in s.Tasks)
+        {
+            rows.Add(new OverviewRow(task, null));
+            rows.AddRange(AgentTree.Rows(s.Sessions.Where(x => x.Files.TaskId == task.Id))
+                .Select(child => new OverviewRow(task, child)));
+        }
+        return rows;
+    }
+
+    // 39.1: " <Prefix><icon> <Name> · <role> <attempt> · <n tool calls> · <span>", starting at the id column and cut to
+    // the row width, in the colour of the sub-agent's state.
+    public static string ChildRow(AgentRow row, DateTimeOffset now, int width)
+    {
+        var (session, sub) = (row.Session, row.SubAgent);
+        var state = SubAgents.StateOf(session, sub);
+        var text = string.Join(Separator,
+            $" {row.Prefix}{Look.Icon(state)} {sub.Name}",
+            Words.Role(session.Files.Role) + " " + Words.Attempt(session.Files),
+            ToolCalls(session.Content, sub.Id),
+            Elapsed(sub.StartedAt, sub.FinishedAt, now));
+        return Look.Tag(Look.Color(state), Cut(ChildIndent + text, width));
+    }
+
     // The header of the task table, aligned with TaskRow.
     public static string TaskHeader(int idWidth, int titleWidth, int detailWidth) =>
         Look.Tag("muted", Columns([" ", "Id", "Wave", "Title", "Detail", "Att", "Cost", "Elapsed"],
@@ -115,6 +145,7 @@ public static class OverviewText
     }
 
     // 7.4, 27.2: Status, Plan, Prompt, Summary, Notes, Error, Feedback, Sessions, Processes; empty sections left out.
+    // 39.4: each session line is followed by the lines of its sub-agents.
     public static IReadOnlyList<PopupSection> TaskPopup(TaskView t, RunSnapshot s)
     {
         var sections = new List<PopupSection>();
@@ -144,8 +175,7 @@ public static class OverviewText
         AddIfText(sections, "Feedback", t.Feedback);
         AddIfText(sections, "Sessions", string.Join('\n', s.Sessions
             .Where(x => x.Files.TaskId == t.Id)
-            .Select(x => string.Join(Separator,
-                x.Files.Role.ToString(), Attempt(x.Files), x.State.ToString(), Or(x.Content.Model)))));
+            .SelectMany(x => AgentTree.Rows([x]).Select(PopupChildLine).Prepend(PopupSessionLine(x)))));
         AddIfText(sections, "Processes", string.Join('\n', s.Processes.Processes
             .Where(p => p.TaskId == t.Id)
             .Select(p => string.Join(Separator,
@@ -164,7 +194,8 @@ public static class OverviewText
 
     // 7.5, 7.6, 17.1: a header line (warning colour when the last event is more than 5 minutes old), the context size
     // of the latest call with usage (no line without one), the process line (27.1; none while no sample was taken), then
-    // the last 5 items, one line each.
+    // the last 5 items, one line each. 39.2: the header, context and items are the agent's own; one line per sub-agent
+    // follows.
     public static IReadOnlyList<string> RunningBlock(Session session, RunSnapshot snapshot, DateTimeOffset now)
     {
         var files = session.Files;
@@ -174,7 +205,7 @@ public static class OverviewText
         var rest = string.Join(Separator,
             Attempt(files),
             Or(content.Model),
-            ToolCalls(content.Items.OfType<ToolCall>().Count()),
+            ToolCalls(content, null),
             content.LastEventAt is { } last ? Look.Span(now - last) + " ago" : Missing);
 
         var stale = content.LastEventAt is { } at && now - at > StaleAfter;
@@ -183,30 +214,72 @@ public static class OverviewText
             : string.Join(Separator, Look.Tag("", name), Look.Tag(Look.Color(files.Role), role), Look.Tag("", rest));
 
         var lines = new List<string> { header };
-        if (content.Calls.LastOrDefault(c => c.Usage is not null)?.Usage is { } usage)
+        if (LatestUsage(content, null) is { } usage)
             lines.Add(ItemIndent + "context " + Look.ContextSize(usage.Context, ContextLimit.For(snapshot, session)));
         if (snapshot.Processes.SampledAt is not null)
             lines.Add(ItemIndent + ProcessLine(session, snapshot.Processes.Processes, now));
-        var items = content.Items;
+        var items = SubAgents.Items(content, null);
         for (var i = Math.Max(0, items.Length - RunningItemCount); i < items.Length; i++)
             lines.Add(ItemIndent + ItemLine(items[i]));
+        lines.AddRange(AgentTree.Rows([session]).Select(row => RunningChildLine(row, snapshot)));
         return lines;
     }
 
-    // 7.8: "HH:mm:ss [source] <first line>" in the kind's colour.
+    // 7.8, 39.3: "HH:mm:ss [source] <first line>" in the kind's colour; the source is the entry's path (LogPath).
     public static string LogLine(ProgressEntry e)
     {
-        var source = e.Source is null ? "" : $"[{e.Source}] ";
+        var source = LogPath(e) is { } path ? $"[{path}] " : "";
         return Look.Tag(Look.Color(e.Kind), $"{Look.Clock(e.Time)} {source}{FirstLine(e.Message)}");
     }
 
-    // 7.9: one section with the whole message.
+    // 7.9, 39.3: one section with the whole message, under the time, the entry's path and its kind.
     public static IReadOnlyList<PopupSection> LogPopup(ProgressEntry e)
     {
         var heading = string.Join(Separator,
-            new[] { Look.Clock(e.Time), e.Source, e.Kind.ToString() }.OfType<string>());
+            new[] { Look.Clock(e.Time), LogPath(e), e.Kind.ToString() }.OfType<string>());
         return [new PopupSection(heading, e.Message)];
     }
+
+    // 39.3: "<Source> › <SubAgent>", or the SubAgent alone without a source; the Source alone without a SubAgent.
+    private static string? LogPath(ProgressEntry e) => e.SubAgent switch
+    {
+        null => e.Source,
+        { } sub when e.Source is null => sub,
+        { } sub => e.Source + AgentPath.Separator + sub,
+    };
+
+    // 39.2: "<Prefix><icon> <Name> · <n tool calls>" with the tree part in the state's colour, then " · context <size>"
+    // from its latest call with usage, then, while it runs, " · <its latest item line>".
+    private static string RunningChildLine(AgentRow row, RunSnapshot snapshot)
+    {
+        var (session, sub) = (row.Session, row.SubAgent);
+        var content = session.Content;
+        var state = SubAgents.StateOf(session, sub);
+        var line = Look.Tag(Look.Color(state), $"{row.Prefix}{Look.Icon(state)} {sub.Name}")
+            + Separator + ToolCalls(content, sub.Id);
+        if (LatestUsage(content, sub.Id) is { } usage)
+            line += Separator + "context " + Look.ContextSize(usage.Context, ContextLimit.ForModel(snapshot, sub.Model));
+        var items = SubAgents.Items(content, sub.Id);
+        if (state == SessionState.Running && items.Length > 0)
+            line += Separator + ItemLine(items[^1]);
+        return line;
+    }
+
+    // 7.4: "<Role> · <attempt> · <State> · <Model|->".
+    private static string PopupSessionLine(Session x) =>
+        string.Join(Separator, x.Files.Role.ToString(), Attempt(x.Files), x.State.ToString(), Or(x.Content.Model));
+
+    // 39.4: "  <Prefix> <Name> · <AgentType|-> · <State> · <Model|->", plain text like the session line above it.
+    private static string PopupChildLine(AgentRow row) =>
+        $"{PopupChildIndent}{row.Prefix} " + string.Join(Separator,
+            row.SubAgent.Name,
+            Or(row.SubAgent.AgentType),
+            SubAgents.StateOf(row.Session, row.SubAgent).ToString(),
+            Or(row.SubAgent.Model));
+
+    // The usage of the agent's latest call that has one; null gives the agent's own calls (39.2).
+    private static TokenUsage? LatestUsage(SessionContent content, string? agentId) =>
+        SubAgents.Calls(content, agentId).LastOrDefault(c => c.Usage is not null)?.Usage;
 
     // 27.1: the figures of the process with the session's task id and role (the latest started of several, nulls last),
     // or "no process" in the warning colour.
@@ -260,6 +333,9 @@ public static class OverviewText
         return right ? cell.PadLeft(width) : cell.PadRight(width);
     }
 
+    // Cuts the text as Fit does when it is longer than the width; shorter text keeps its length.
+    private static string Cut(string text, int width) => text.Length > width ? Fit(text, width) : text;
+
     private static string Attempt(SessionFiles files)
     {
         var text = "#" + files.Attempt.ToString(CultureInfo.InvariantCulture);
@@ -268,7 +344,10 @@ public static class OverviewText
         return files.IsNudge ? text + " nudge" : text;
     }
 
-    private static string ToolCalls(int n) => n == 1 ? "1 tool call" : $"{Number(n)} tool calls";
+    // "1 tool call", "2 tool calls": the ToolCalls among the agent's items, so a nested sub-agent's do not count (39.1,
+    // 39.2); null counts the agent's own.
+    private static string ToolCalls(SessionContent content, string? agentId) =>
+        Words.Count(SubAgents.Items(content, agentId).OfType<ToolCall>().Count(), "tool call");
 
     private static int Longest(IReadOnlyList<TaskView> tasks, Func<TaskView, string> cell, string header) =>
         tasks.Select(t => cell(t).Length).Append(header.Length).Max();

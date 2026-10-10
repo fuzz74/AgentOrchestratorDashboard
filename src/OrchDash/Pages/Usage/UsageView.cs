@@ -146,7 +146,7 @@ internal sealed class UsageView
     /// <summary>
     /// 16.7, 16.10: the group of the session with <see cref="IAppContext.SelectedSessionKey"/> while that key was set
     /// elsewhere after the user's last pick (or before any pick); else the picked group by name; else the first group;
-    /// -1 without groups.
+    /// -1 without groups. A key that names a sub-agent picks the group of its session part (43.5).
     /// </summary>
     private int SelectedGroupIndex()
     {
@@ -156,8 +156,9 @@ internal sealed class UsageView
             return -1;
         }
         var key = _context.SelectedSessionKey.Value;
+        var sessionKey = AgentKey.Parse(key).SessionKey;
         var pick = _pick.Value;
-        if ((pick is null || pick.Value.Key != key) && IndexOf(groups, group => IndexOfSession(group, key) >= 0) is var keyed and >= 0)
+        if ((pick is null || pick.Value.Key != key) && IndexOf(groups, group => IndexOfSession(group, sessionKey) >= 0) is var keyed and >= 0)
         {
             return keyed;
         }
@@ -170,6 +171,10 @@ internal sealed class UsageView
 
     private UsageGroup? SelectedGroup() => SelectedGroupIndex() is var index and >= 0 ? Tables().Groups[index] : null;
 
+    /// <summary>The rows of the selected group's session table; empty without groups.</summary>
+    private ImmutableArray<SessionEntry> SelectedEntries() =>
+        SelectedGroupIndex() is var index and >= 0 ? Tables().SessionEntries[index] : [];
+
     private ListSelection GroupSelection() => new(null, SelectedGroupIndex());
 
     private void SelectGroup(int index) => _pick.Value = new GroupPick(Tables().Groups[index].Name, _context.SelectedSessionKey.Value);
@@ -177,33 +182,56 @@ internal sealed class UsageView
     private ImmutableArray<ImmutableArray<string>> SessionRows() =>
         SelectedGroupIndex() is var index and >= 0 ? Tables().SessionRows[index] : [];
 
-    /// <summary>The session with <see cref="IAppContext.SelectedSessionKey"/> when it is in the selected group, else the group's first.</summary>
+    /// <summary>
+    /// The row of <see cref="IAppContext.SelectedSessionKey"/> when its session is in the selected group: the child row
+    /// of its agent part, or the session's row when it has none or names a sub-agent the session does not have (43.5);
+    /// else the group's first row.
+    /// </summary>
     private ListSelection SessionSelection()
     {
         if (SelectedGroup() is not { } group)
         {
             return new ListSelection(null, -1);
         }
-        return new ListSelection(group.Name, Math.Max(0, IndexOfSession(group, _context.SelectedSessionKey.Value)));
+        var entries = SelectedEntries();
+        var (sessionKey, agentId) = AgentKey.Parse(_context.SelectedSessionKey.Value);
+        var row = IndexOf(entries, entry => entry.Session.Files.Key == sessionKey && entry.AgentId == agentId);
+        if (row < 0)
+        {
+            row = IndexOf(entries, entry => entry.Session.Files.Key == sessionKey && entry.AgentId is null);
+        }
+        return new ListSelection(group.Name, Math.Max(0, row));
     }
 
+    /// <summary>16.7, 43.5: a session row selects its session, a child row its sub-agent.</summary>
     private void SelectSession(int index)
     {
         if (SelectedGroup() is { } group)
         {
-            var key = group.Sessions[index].Files.Key;
+            var entry = SelectedEntries()[index];
+            var key = AgentKey.Of(entry.Session, entry.AgentId);
             _pick.Value = new GroupPick(group.Name, key);
             _context.SelectedSessionKey.Value = key;
         }
     }
 
-    /// <summary>16.8: the session's usage pop-up.</summary>
+    /// <summary>16.8: the session's usage pop-up; 43.3: on a child row, the sub-agent's.</summary>
     private void OpenSession(int index)
     {
-        if (SelectedGroup() is { } group && index < group.Sessions.Length)
+        var entries = SelectedEntries();
+        if (index >= entries.Length)
         {
-            var session = group.Sessions[index];
-            _context.ShowPopup(UsageText.SessionPopupTitle(session), UsageText.SessionPopup(_context.Snapshot.Value, session));
+            return;
+        }
+        var session = entries[index].Session;
+        var snapshot = _context.Snapshot.Value;
+        if (entries[index].AgentId is { } agentId)
+        {
+            _context.ShowPopup(UsageText.SubAgentPopupTitle(session, agentId), UsageText.SubAgentPopup(snapshot, session, agentId));
+        }
+        else
+        {
+            _context.ShowPopup(UsageText.SessionPopupTitle(session), UsageText.SessionPopup(snapshot, session));
         }
     }
 
@@ -222,6 +250,12 @@ internal sealed class UsageView
         return -1;
     }
 
+    /// <summary>A row of the session table: a session, or with <see cref="Child"/> one of its sub-agents (43.1).</summary>
+    private sealed record SessionEntry(Session Session, AgentRow? Child)
+    {
+        public string? AgentId => Child?.SubAgent.Id;
+    }
+
     /// <summary>Everything the page shows of one snapshot, as markup lines.</summary>
     private sealed record UsageTables(
         IReadOnlyList<string> RunLines,
@@ -232,22 +266,34 @@ internal sealed class UsageView
         ImmutableArray<ImmutableArray<string>> GroupRows,
         ImmutableArray<UsageBar> Bars,
         string SessionHeader,
-        ImmutableArray<ImmutableArray<ImmutableArray<string>>> SessionRows)   // per group, per session
+        ImmutableArray<ImmutableArray<SessionEntry>> SessionEntries,          // per group, per row
+        ImmutableArray<ImmutableArray<ImmutableArray<string>>> SessionRows)   // per group, per row
     {
         public static UsageTables Of(RunSnapshot snapshot)
         {
             var groups = UsageRules.Groups(snapshot);
             var nameWidth = UsageText.GroupNameWidth(groups);
+            var subAgents = UsageRules.HasSubAgents(snapshot);
+            ImmutableArray<ImmutableArray<SessionEntry>> entries =
+                [.. groups.Select(group => group.Sessions.SelectMany(Entries).ToImmutableArray())];
             return new UsageTables(
                 UsageText.RunPanel(snapshot),
                 UsageText.RateLimitLine(snapshot),
                 UsageText.VersionsLine(snapshot),
                 groups,
-                MarkerSpace + UsageText.GroupHeader(nameWidth),
-                [.. groups.Select(group => ImmutableArray.Create(UsageText.GroupRow(group, nameWidth)))],
+                MarkerSpace + UsageText.GroupHeader(nameWidth, subAgents),
+                [.. groups.Select(group => ImmutableArray.Create(UsageText.GroupRow(group, nameWidth, subAgents)))],
                 UsageText.BarItems(groups),
-                MarkerSpace + UsageText.SessionHeader(),
-                [.. groups.Select(group => group.Sessions.Select(session => ImmutableArray.Create(UsageText.SessionRow(snapshot, session))).ToImmutableArray())]);
+                MarkerSpace + UsageText.SessionHeader(subAgents),
+                entries,
+                [.. entries.Select(rows => rows.Select(entry => ImmutableArray.Create(Row(snapshot, entry))).ToImmutableArray())]);
         }
+
+        /// <summary>43.1: each session's row, then its child rows.</summary>
+        private static IEnumerable<SessionEntry> Entries(Session session) =>
+            AgentTree.Rows([session]).Select(child => new SessionEntry(session, child)).Prepend(new SessionEntry(session, null));
+
+        private static string Row(RunSnapshot snapshot, SessionEntry entry) =>
+            entry.Child is { } child ? UsageText.ChildRow(child) : UsageText.SessionRow(snapshot, entry.Session);
     }
 }

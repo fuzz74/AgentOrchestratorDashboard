@@ -14,7 +14,7 @@ internal sealed class RecordingAppContext(RunSnapshot snapshot) : IAppContext
     private readonly object _gate = new();
     private readonly List<DateTimeOffset?> _replays = [];
     private readonly List<string> _pages = [];
-    private readonly List<string> _popups = [];
+    private readonly List<(string Title, IReadOnlyList<PopupSection> Sections)> _popups = [];
 
     public State<RunSnapshot> Snapshot { get; } = new(snapshot);
 
@@ -27,11 +27,14 @@ internal sealed class RecordingAppContext(RunSnapshot snapshot) : IAppContext
     public IReadOnlyList<string> Pages => Copy(_pages);
 
     /// <summary>The titles of the pop-ups shown.</summary>
-    public IReadOnlyList<string> Popups => Copy(_popups);
+    public IReadOnlyList<string> Popups => [.. Copy(_popups).Select(popup => popup.Title)];
+
+    /// <summary>The sections of the pop-ups shown, in the order of <see cref="Popups"/>.</summary>
+    public IReadOnlyList<IReadOnlyList<PopupSection>> PopupSections => [.. Copy(_popups).Select(popup => popup.Sections)];
 
     public void ShowPage(string pageId) => Add(_pages, pageId);
 
-    public void ShowPopup(string title, IReadOnlyList<PopupSection> sections) => Add(_popups, title);
+    public void ShowPopup(string title, IReadOnlyList<PopupSection> sections) => Add(_popups, (title, sections));
 
     public void Replay(DateTimeOffset? at) => Add(_replays, at);
 

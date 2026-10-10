@@ -28,6 +28,19 @@ public sealed class ModelContractsTests
     }
 
     [Fact]
+    public void StoreData_has_one_shared_empty_sub_agent_dictionary_with_ordinal_keys()
+    {
+        // (36.1) 4.3: one instance, so store data without sub-agents stays equal.
+        var none = StoreData.NoSubAgents;
+
+        Assert.Empty(none);
+        Assert.Same(StringComparer.Ordinal, none.KeyComparer);
+        Assert.Same(none, StoreData.NoSubAgents);
+        Assert.Same(none, StoreData.Empty.SubAgents);
+        Assert.Same(none, new StoreData(null, [], [], [], [], null, null, null, 0).SubAgents);
+    }
+
+    [Fact]
     public void UsageRows_Empty_has_no_rows_and_ordinal_keys()
     {
         var empty = UsageRows.Empty;
@@ -72,6 +85,24 @@ public sealed class ModelContractsTests
         Assert.Null(call.NanoAiu);
         Assert.Null(call.Duration);
         Assert.Null(call.StopReason);
+        Assert.Null(call.AgentId);
+    }
+
+    [Fact]
+    public void Records_built_from_their_parameters_belong_to_no_sub_agent()
+    {
+        // (35.2, 35.4, 36.2, 37.1, 38.2)
+        var figures = new CallFigures("msg_01", SampleRun.At(12, 0, 10), new TokenUsage(1, 2, 3, 4), null, null, null, null);
+        var tool = new ToolCall("msg_01", SampleRun.At(12, 0, 10), "toolu_01", "Read", "{}", "a.cs", null);
+        var entry = new ProgressEntry(SampleRun.At(12, 0, 0), "planner", "Glob **/*", ProgressKind.Activity);
+        var timeline = new TimelineEvent("progress:0", entry.Time, TimelineKind.Orchestrator, "run", 0, entry,
+            null, null, null, null);
+
+        Assert.Null(figures.AgentId);
+        Assert.Null(figures.ParentToolCallId);
+        Assert.Null(tool.AgentId);
+        Assert.Null(entry.SubAgent);
+        Assert.Null(timeline.AgentId);
     }
 
     [Fact]
@@ -83,6 +114,18 @@ public sealed class ModelContractsTests
         Assert.Null(empty.Checkpoint);
         Assert.Null(empty.RateLimit);
         Assert.Same(empty, SessionContent.Empty);
+    }
+
+    [Fact]
+    public void SessionContent_has_no_sub_agents_unless_set()
+    {
+        // (35.1) 4.3: an empty array, not a default one.
+        var built = new SessionContent(null, null, null, [], [], null, null, null, 0);
+
+        Assert.False(SessionContent.Empty.SubAgents.IsDefault);
+        Assert.Empty(SessionContent.Empty.SubAgents);
+        Assert.False(built.SubAgents.IsDefault);
+        Assert.Empty(built.SubAgents);
     }
 
     [Fact]
