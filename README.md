@@ -89,6 +89,8 @@ when no `claude.exe` or `copilot.exe` process belongs to the session's task and 
 there is no such line. The task pop-up has a `Processes` section after `Sessions` with two lines per process of the
 task: `pid <pid> · <role> · started <time> · cpu <n %> · mem <bytes>` and its command line.
 
+![The Overview page](docs/assets/screenshots/overview.png)
+
 | Key | Action |
 | --- | --- |
 | Tab, Shift+Tab | Move to the next or previous panel |
@@ -99,6 +101,8 @@ task: `pid <pid> · <role> · started <time> · cpu <n %> · mem <bytes>` and it
 | End (log) | Follow the newest log entry again |
 
 **Conversation page**: the session list on the left, the selected session's entries on the right.
+
+![The Conversation page](docs/assets/screenshots/conversation.png)
 
 | Key | Action |
 | --- | --- |
@@ -116,6 +120,8 @@ time, context, change from the previous call, output, thinking, stop reason), th
 category (system prompt, tool definitions, injected text, prompt, conversation, other) and the part list. Attempts of
 the same session (a resumed worker) form one chain of calls. Tokens marked `~` or `est.` are estimates spread over the
 parts by their characters.
+
+![The Context page](docs/assets/screenshots/context.png)
 
 | Key | Action |
 | --- | --- |
@@ -135,6 +141,8 @@ requests, AIU and lines changed over the whole run), the latest rate limits, the
 (bootstrap, planner and one row per task) with the chart `Tokens per group`, and the sessions of the selected group. A
 figure that no session knows shows as `-`.
 
+![The Usage page](docs/assets/screenshots/usage.png)
+
 | Key | Action |
 | --- | --- |
 | Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused table; in the session table this also selects the session or sub-agent on the other pages |
@@ -148,6 +156,8 @@ is marked `●`, its direct and indirect dependencies `◂` and its dependents `
 dependencies and dependents. The `Task` panel below shows the selected task's deps and dependents with their status,
 its owned paths, the other tasks whose owned paths overlap, its state, attempts and cost, why it waits (`detail`) and
 its number of sessions.
+
+![The Graph page](docs/assets/screenshots/graph.png)
 
 | Key | Action |
 | --- | --- |
@@ -165,6 +175,8 @@ the task table (status, id, `@<tip>` of the task branch or `archived`, `clean` o
 and syncs, committed files with lines added and removed, merge commit); and for the selected task its commits, oldest
 first, and its changed files: the committed ones, then the uncommitted lines of `git status`.
 
+![The Git page](docs/assets/screenshots/git.png)
+
 | Key | Action |
 | --- | --- |
 | Up, Down, PageUp, PageDown, Home, End, wheel | Move the selection in the focused list |
@@ -179,6 +191,8 @@ running, `·` unknown), time, task or `bootstrap`, kind (setup, acceptance, inte
 bootstrap setup, bootstrap check), `#<attempt>` and size. On the right the selected log: a header with the command, the
 outcome with its exit code, the log's path under `logs/` and its size, then its output and, when there is any,
 `── stderr ──` and the error output. While a command runs, the output follows its end as it grows.
+
+![The Commands page](docs/assets/screenshots/commands.png)
 
 | Key | Action |
 | --- | --- |
@@ -196,6 +210,8 @@ orchestrator's progress entries (without the activity lines), and for every sess
 tool calls, its texts and its result, and the start, calls, tool calls, texts and end of each of its sub-agents. While
 the run has sub-agents, the filter row shows `[s] sub-agents` after `[e] prompt/result`. `No events yet` while there is
 none.
+
+![The Timeline page](docs/assets/screenshots/timeline.png)
 
 | Key | Action |
 | --- | --- |
