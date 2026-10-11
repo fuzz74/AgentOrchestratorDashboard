@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="OrchDash: a live terminal dashboard for AgentOrchestrator runs" width="100%">
+</p>
+
 # OrchDash
 
 A fullscreen terminal dashboard for runs of the agent orchestrator. The orchestrator builds a project with headless
